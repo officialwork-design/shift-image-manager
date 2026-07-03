@@ -25,15 +25,60 @@ function bindEvents() {
 }
 
 async function loadDateList() {
+  const fallbackDates = getCurrentMonthDatesJst();
+  renderDateOptions(fallbackDates);
+
+  const gasUrl = (window.APP_CONFIG && window.APP_CONFIG.GAS_WEB_APP_URL) || '';
+  if (!gasUrl) {
+    setStatus('日付は日本時間で生成 / GAS未設定', 'warning');
+    showAlert('GAS_WEB_APP_URL が未設定のため、日付は日本時間の今月分を表示しています。API連携には config.js へWebアプリURLを設定してください。', 'warning');
+    return;
+  }
+
   try {
     setStatus('日付取得中', 'secondary');
     const dates = await Api.request('getDateList');
-    const picker = document.getElementById('datePicker');
-    picker.innerHTML = '<option value="">日付選択</option>' + dates.map(d => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('');
+    renderDateOptions(Array.isArray(dates) && dates.length ? dates : fallbackDates);
   } catch (err) {
-    showAlert(err.message, 'danger');
-    setStatus('日付取得失敗', 'danger');
+    renderDateOptions(fallbackDates);
+    showAlert('APIから日付を取得できなかったため、日本時間の今月分を表示しています。' + err.message, 'warning');
+    setStatus('日付は日本時間で生成', 'warning');
   }
+}
+
+function renderDateOptions(dates) {
+  const picker = document.getElementById('datePicker');
+  picker.innerHTML = '<option value="">日付選択</option>' + dates.map(d => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('');
+}
+
+function getCurrentMonthDatesJst() {
+  const nowParts = getJapanDateParts(new Date());
+  const year = Number(nowParts.year);
+  const month = Number(nowParts.month);
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+  const dates = [];
+
+  for (let day = 1; day <= lastDay; day++) {
+    const date = new Date(Date.UTC(year, month - 1, day));
+    dates.push(`${month}月${day}日(${weekdays[date.getUTCDay()]})`);
+  }
+
+  return dates;
+}
+
+function getJapanDateParts(date) {
+  const formatter = new Intl.DateTimeFormat('ja-JP', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric'
+  });
+  const parts = formatter.formatToParts(date).reduce((acc, part) => {
+    if (part.type !== 'literal') acc[part.type] = part.value;
+    return acc;
+  }, {});
+  return parts;
 }
 
 async function loadShift() {
