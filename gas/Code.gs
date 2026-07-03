@@ -2,6 +2,11 @@ const BOOTSTRAP_SPREADSHEET_ID = '1s-Ga2SpUWzoKQHSOymqo5MCO_wgdevFKrQWHUIKvct0';
 const SCRIPT_ID = '1m0G9Y3ATR885RDD1LBEjp5Zsc5Ts4qv_hq1q9kFw3Xe0WmKy5DQVnATS';
 
 const STORE_NAMES = ['KABUKI', 'AKIBA'];
+const SHIFT_STATUSES = ['出勤', '休み'];
+const WORK_TIME_OPTIONS = [
+  '17:00', '17:30', '18:00', '18:30', '19:00', '19:30',
+  '20:00', '20:30', '21:00', '21:30', '22:00'
+];
 
 const CAST_MASTER = [
   'あいな', '青葉', 'いおり', 'えりか', 'かれん', 'かなの', '乖離', 'ここね', 'ここみ', 'こん',
@@ -35,8 +40,11 @@ const DEFAULT_CONFIG = {
 const SHEET_LAYOUT = {
   CAST_START_ROW: 3,
   CAST_END_ROW: 80,
-  CAST_NAME_COLUMN: 8,
-  CAST_ABSENT_COLUMN: 9,
+  SORT_COLUMN: 8,
+  CAST_NAME_COLUMN: 9,
+  WORK_TIME_COLUMN: 10,
+  STATUS_COLUMN: 11,
+  IMAGE_STATUS_COLUMN: 12,
   DATE_CELL: 'A1',
   STORE_CELL: 'C1'
 };
