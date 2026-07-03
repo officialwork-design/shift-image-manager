@@ -10,40 +10,34 @@ const ApiRouter = {
   handle(e, isJsonp) {
     const started = new Date();
     const callback = e && e.parameter ? e.parameter.callback : '';
+    let request = { action: '', payload: {} };
 
     try {
-      const request = this.parseRequest(e, isJsonp);
+      request = this.parseRequest(e, isJsonp);
       const data = this.route(request.action, request.payload || {});
-
-      return Utils.output({
-        success: true,
-        data,
-        elapsedMs: new Date() - started,
-        timestamp: Utils.now()
-      }, callback);
+      return Utils.output(Utils.successResponse(data, new Date() - started), callback);
     } catch (err) {
-      LogService.error('ApiRouter.handle', err, e && e.parameter ? e.parameter : {});
-      return Utils.output({
-        success: false,
-        data: null,
-        error: {
-          message: err && err.message ? err.message : String(err)
-        },
-        timestamp: Utils.now()
-      }, callback);
+      LogService.error(request.action || 'ApiRouter.handle', err, this.getErrorPayload_(e, request));
+      return Utils.output(Utils.errorResponse(err, request.action, new Date() - started), callback);
     }
   },
 
   parseRequest(e, isJsonp) {
+    const params = e && e.parameter ? e.parameter : {};
     if (isJsonp) {
       return {
-        action: String(e.parameter.action || '').trim(),
-        payload: e.parameter.payload ? JSON.parse(e.parameter.payload) : {}
+        action: String(params.action || '').trim(),
+        payload: params.payload ? Utils.parseJson(params.payload, {}) : {}
       };
     }
 
     const body = e && e.postData && e.postData.contents ? e.postData.contents : '{}';
-    return JSON.parse(body);
+    const request = Utils.parseJson(body, {});
+    if (!request.action && params.action) {
+      request.action = String(params.action || '').trim();
+      request.payload = params.payload ? Utils.parseJson(params.payload, {}) : {};
+    }
+    return request;
   },
 
   route(action, payload) {
@@ -67,5 +61,13 @@ const ApiRouter = {
       default:
         throw new Error('Unknown action: ' + action);
     }
+  },
+
+  getErrorPayload_(e, request) {
+    return {
+      request,
+      parameters: e && e.parameter ? e.parameter : {},
+      postData: e && e.postData && e.postData.contents ? e.postData.contents : ''
+    };
   }
 };

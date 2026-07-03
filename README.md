@@ -50,6 +50,7 @@ https://officialwork-design.github.io/shift-image-manager/
 shift-image-manager/
 ├── index.html
 ├── config.js
+├── .clasp.json
 ├── README.md
 ├── assets/
 │   ├── css/
@@ -63,7 +64,16 @@ shift-image-manager/
 │   ├── SHEET.md
 │   └── FLOW.md
 └── gas/
-    └── Code.gs
+    ├── Code.gs
+    ├── ApiRouter.gs
+    ├── ConfigService.gs
+    ├── SpreadsheetService.gs
+    ├── SiftService.gs
+    ├── ImageService.gs
+    ├── ShiftService.gs
+    ├── LogService.gs
+    ├── Utils.gs
+    └── appsscript.json
 ```
 
 ## ドキュメント
@@ -96,6 +106,22 @@ GitHub Pages反映
 ## GAS反映フロー
 
 ```text
+社内PCで gas/*.gs / gas/appsscript.json を編集
+↓
+clasp push
+↓
+Apps Script エディタで反映内容を確認
+↓
+新しいバージョンを作成
+↓
+Webアプリをデプロイ
+↓
+GAS_WEB_APP_URL を ID管理 / config.js に反映
+```
+
+手動コピーが必要な場合のみ、以下の流れを使います。
+
+```text
 GitHub の gas/*.gs を確認
 ↓
 Apps Script エディタを開く
@@ -119,6 +145,23 @@ cd shift-image-manager
 ```
 
 GitHub Pages は `main` ブランチのルートを公開対象にします。
+
+## clasp 運用
+
+このリポジトリは `.clasp.json` で `rootDir` を `gas` に設定しています。
+
+```bash
+clasp login
+clasp status
+clasp push
+clasp deploy
+```
+
+- GAS側へ反映するファイルは `gas/` 配下のみです。
+- `appsscript.json` は `gas/appsscript.json` を正とします。
+- WebアプリURLは公開前提の値として `ID管理` シートと `config.js` に設定します。
+- 秘密情報が必要になった場合のみ、Apps Script の Script Properties を使用します。
+- GitHub Pages からは JSONP / WebApp API を呼び、`google.script.run` は使用しません。
 
 ## Spreadsheet
 

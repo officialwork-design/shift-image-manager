@@ -55,7 +55,7 @@ SIFT_DATAから対象投稿を検索
 ↓
 投稿文からキャスト名を抽出
 ↓
-画像生成シート H3:H38 に反映
+画像生成シート H3:H80 に反映
 ↓
 休み設定を初期化
 ↓
@@ -233,6 +233,24 @@ GitHub Pagesへ反映
 ## 13. GAS運用フロー
 
 ```text
+社内PCで gas/*.gs / gas/appsscript.json を編集
+↓
+clasp status
+↓
+clasp push
+↓
+Apps Script エディタで反映内容を確認
+↓
+新しいバージョンを作成
+↓
+Webアプリをデプロイ
+↓
+GAS_WEB_APP_URL を ID管理 / config.js に反映
+```
+
+手動コピー運用が必要な場合のみ、以下の流れを使います。
+
+```text
 GitHub の gas/*.gs を確認
 ↓
 Apps Script エディタを開く
@@ -248,7 +266,26 @@ Webアプリをデプロイ
 GAS_WEB_APP_URL を ID管理 / config.js に反映
 ```
 
-## 14. デプロイ確認フロー
+## 14. GAS責務分離
+
+```text
+ApiRouter.gs
+↓
+ConfigService.gs / SpreadsheetService.gs
+↓
+SiftService.gs / ImageService.gs / ShiftService.gs
+↓
+LogService.gs
+↓
+Utils.gs
+```
+
+- `doGet` / `doPost` は `ApiRouter.gs` に集約する。
+- `Code.gs` は定数、初期メニュー、セットアップ入口だけを持つ。
+- `ID管理` シートの設定を優先し、秘密情報が必要な場合のみ Script Properties を使う。
+- GitHub Pages からは JSONP / WebApp API を呼び、`google.script.run` は使用しない。
+
+## 15. デプロイ確認フロー
 
 ```text
 GitHub Pagesを開く
@@ -270,7 +307,7 @@ SIFT_DATA投稿文が表示されるか確認
 ログが記録されるか確認
 ```
 
-## 15. 開発優先順位
+## 16. 開発優先順位
 
 1. ドキュメント整備
 2. GAS API基盤
