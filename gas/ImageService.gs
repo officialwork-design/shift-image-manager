@@ -32,9 +32,10 @@ const ImageService = {
     return 'data:' + blob.getContentType() + ';base64,' + Utilities.base64Encode(blob.getBytes());
   },
 
-  getThumbnailUrl(fileId) {
+  getThumbnailUrl(fileId, size) {
     if (!fileId) return '';
-    return 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(fileId) + '&sz=w600';
+    const safeSize = size || 'w240';
+    return 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(fileId) + '&sz=' + encodeURIComponent(safeSize);
   },
 
   checkImages() {
