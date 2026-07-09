@@ -89,6 +89,9 @@ const SiftService = {
 
       const name = this.normalizeCastName(text);
       Logger.log('[parsePostText] 正規化: "%s" -> "%s"', text, name); // 一時ログ（調査用）
+      Logger.log('[parsePostText] name=%s', JSON.stringify(name)); // 一時ログ（調査用）
+      Logger.log('[parsePostText] name.length=%s', name.length); // 一時ログ（調査用）
+      Logger.log('[parsePostText] charCodes=%s', JSON.stringify([...name].map(c => c.charCodeAt(0)))); // 一時ログ（調査用）
 
       if (!name) {
         Logger.log('[parsePostText] 除外(正規化後が空): "%s"', text); // 一時ログ（調査用）
@@ -125,15 +128,17 @@ const SiftService = {
   },
 
   normalizeCastName(text) {
-    let name = String(text || '')
+    const name = String(text || '')
+      // 不可視・ゼロ幅文字（U+200B ZWSP / U+200C ZWNJ / U+200D ZWJ / U+2060 WJ 等）、
+      // 双方向制御(U+202A-202E)、異体字セレクタ(U+FE00-FE0F)、BOM(U+FEFF)、ソフトハイフン(U+00AD)を除去。
+      // これらは \s に含まれずSNSコピペで混入するため、名前一致(画像照合)を壊す。
+      .replace(/[\u00AD\u200B-\u200F\u2028\u2029\u202A-\u202E\u2060-\u2064\uFE00-\uFE0F\uFEFF]/g, '')
       .replace(/[@＠][^\s　]+.*/, '')
       .replace(/[🔰💖🎀⚡️🫶🏼⭐️✨🌟🎪]/g, '')
       .replace(/（ゲスト）|\(ゲスト\)/g, '')
       .replace(/\s+/g, '')
       .replace(/　+/g, '')
       .trim();
-
-    if (!name) return '';
 
     const aliases = {
       '恋富子': '恋富子',
@@ -145,7 +150,9 @@ const SiftService = {
       '体入みあは': '体入みあは'
     };
 
-    return aliases[name] || name;
+    const result = name ? (aliases[name] || name) : '';
+    Logger.log('[normalizeCastName] return=%s len=%s codes=%s', JSON.stringify(result), result.length, JSON.stringify([...result].map(c => c.charCodeAt(0)))); // 一時ログ（調査用）
+    return result;
   },
 
   getStoreRow_(store) {
