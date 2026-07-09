@@ -20,14 +20,98 @@ const WORK_TIME_OPTIONS = [
 
 const SHIFT_STATUSES = ['出勤', '休み'];
 
+// キャスト名 → SNS ID（表示は「名前 @id」、保存値は名前のみ）
+const CAST_OPTIONS = {
+  "ひめる": "@himeru_oshiose",
+  "るん": "@run__oshiose",
+  "えりか": "@erika_oshiose",
+  "ななせ": "@nanase_oshiose",
+  "しゅしゅ": "@shushu_oshiose",
+  "こん": "@kon_oshiose",
+  "すず": "@suzu_oshiose",
+  "とおる": "@toru_oshiose",
+  "もも": "@momo_oshiose",
+  "あいな": "@aina__oshiose",
+  "めう": "@meu_oshiose",
+  "むぎ": "@mugi_oshiose2",
+  "ここね": "@kokone_oshiose",
+  "るう": "@ruu_oshiose",
+  "ちょこ": "@ciocco_oshiose",
+  "ゆきの": "@yukino_oshiose",
+  "まゆ": "@mayu_oshiose",
+  "乖離": "@kairi_oshiose",
+  "青葉": "@aoba_oshiose",
+  "りさ": "@risa_oshiose",
+  "ゆる": "@yuru_oshiose",
+  "せい": "@sei_oshiose",
+  "さな": "@sana_oshiose",
+  "りと": "@rito_oshiose_",
+  "めえ": "@mee_oshiose",
+  "ましろ": "@mashiro_oshiose",
+  "るり": "@ruri_oshiose",
+  "かなの": "@kanano_oshiose",
+  "ねぎたろう": "@negi_oshiose",
+  "いおり": "@iori_oshiose",
+  "るか": "@ruka_oshiose",
+  "まにゃ": "@manya_oshiose",
+  "あおい": "@aoi_oshiose",
+  "なつめ": "@natsume_oshiose",
+  "ゆりあ": "@yuria_oshiose",
+  "かれん": "@karen_oshiose",
+  "ちゃま": "@chama_oshiose",
+  "さおりん": "@saorin_oshiose",
+  "たると": "@taruto_oshiose",
+  "まいか": "@maika_oshiose",
+  "ここみ": "@cocomi_oshiose",
+  "ひめ": "@himeA_oshiose",
+  "ことり": "@kotori_oshiose",
+  "ここ": "@coco_oshiose",
+  "るな": "@runa_oshiose",
+  "ゆあ": "@yua_oshiose",
+  "ひかり": "@hikari_oshiose",
+  "ころも": "@coromo_oshiose",
+  "みらい": "@mirai_oshiose",
+  "ひよ": "@hiyo_oshiose",
+  "ラミエル": "@ramiel_oshiose",
+  "そら": "@sora_oshiose",
+  "しちみ": "@7chimi_oshiose",
+  "リア": "@ria_oshiose",
+  "恋富子": "@kotomiko_oshiose"
+};
+
+// 名前select用のoption群を生成（value=名前・表示=「名前 @id」・先頭に未選択）
+function buildCastOptions(selected) {
+  const sel = String(selected || '');
+  let html = '<option value="">選択してください</option>';
+
+  // 既存データで一覧に無い名前も選択状態を保持できるように追加
+  if (sel && !Object.prototype.hasOwnProperty.call(CAST_OPTIONS, sel)) {
+    html += `<option value="${escapeHtml(sel)}" selected>${escapeHtml(sel)}</option>`;
+  }
+
+  html += Object.keys(CAST_OPTIONS).map(name => {
+    const id = CAST_OPTIONS[name];
+    const selectedAttr = name === sel ? ' selected' : '';
+    return `<option value="${escapeHtml(name)}"${selectedAttr}>${escapeHtml(name)} ${escapeHtml(id)}</option>`;
+  }).join('');
+
+  return html;
+}
+
 window.addEventListener('DOMContentLoaded', boot);
 
 async function boot() {
   renderStoreOptions();
   renderAddWorkTimeOptions();
+  renderAddCastOptions();
   bindEvents();
   await loadDateList();
   setStatus('準備完了', 'success');
+}
+
+function renderAddCastOptions() {
+  const select = document.getElementById('addCastName');
+  if (select) select.innerHTML = buildCastOptions('');
 }
 
 function renderStoreOptions() {
@@ -55,6 +139,13 @@ function bindEvents() {
   document.getElementById('checkButton').addEventListener('click', checkImages);
   document.getElementById('exportButton').addEventListener('click', exportImage);
   document.getElementById('siftPreviewSelect').addEventListener('change', onPreviewChange);
+
+  // 並び順変更 → 自動繰り上げ・繰り下げ（イベント委譲で再描画後も有効）
+  document.getElementById('editTableArea').addEventListener('change', event => {
+    if (event.target.classList.contains('js-sort-order')) {
+      handleSortOrderChange(event.target);
+    }
+  });
 }
 
 async function loadDateList() {
@@ -179,7 +270,6 @@ function onPreviewChange() {
 function render(data) {
   renderWarnings(data.missingImages || []);
   renderEditTable(data.editRows || []);
-  renderCastCandidates(data.editRows || []);
   renderPhotos(data.activeCastList || []);
   renderList('activeList', data.activeCastList || [], true);
   renderList('absentList', data.absentCastList || [], false);
@@ -238,7 +328,9 @@ function renderEditRow(row) {
         <input class="form-control form-control-sm js-sort-order" type="number" min="1" value="${Number(row.sortOrder || 1)}">
       </td>
       <td>
-        <input class="form-control form-control-sm js-cast-name" value="${escapeHtml(row.castName || row.name || '')}">
+        <select class="form-select form-select-sm js-cast-name">
+          ${buildCastOptions(row.castName || row.name || '')}
+        </select>
       </td>
       <td>
         <select class="form-select form-select-sm js-work-time">
@@ -294,7 +386,9 @@ function renderMobileEditCard(row) {
       <div class="mobile-edit-grid">
         <div class="mobile-edit-field mobile-edit-field--name">
           <label>名前</label>
-          <input class="form-control js-cast-name" value="${escapeHtml(row.castName || row.name || '')}">
+          <select class="form-select js-cast-name">
+            ${buildCastOptions(row.castName || row.name || '')}
+          </select>
         </div>
         <div class="mobile-edit-field">
           <label>状態</label>
@@ -326,12 +420,6 @@ function renderImageStatusBadge(status) {
   if (value === '登録済み') return '<span class="badge text-bg-success">登録済み</span>';
   if (value === '準備中') return '<span class="badge text-bg-warning">準備中</span>';
   return '<span class="badge text-bg-secondary">未登録</span>';
-}
-
-function renderCastCandidates(rows) {
-  const datalist = document.getElementById('castNameCandidates');
-  const names = [...new Set(rows.map(row => row.castName || row.name).filter(Boolean))];
-  datalist.innerHTML = names.map(name => `<option value="${escapeHtml(name)}"></option>`).join('');
 }
 
 function addCastRow() {
@@ -384,6 +472,56 @@ function collectEditRows() {
   return rows
     .filter(row => row.castName)
     .sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+// DOM表示順のまま全行を読む（フィルタ・ソートしない：並び替え計算用）
+function readEditRowsInDomOrder() {
+  const rows = [];
+  document.querySelectorAll('#editTableArea [data-edit-row]').forEach(el => {
+    const nameEl = el.querySelector('.js-cast-name');
+    rows.push({
+      el,
+      row: Number(el.dataset.rowId || 0),
+      sortOrder: Number(el.querySelector('.js-sort-order').value) || 0,
+      castName: nameEl ? nameEl.value.trim() : '',
+      workTime: el.querySelector('.js-work-time').value,
+      status: el.querySelector('.js-status').value,
+      imageStatus: el.dataset.imageStatus || '未登録'
+    });
+  });
+  return rows;
+}
+
+// 並び順inputの変更で対象を指定位置へ移動し、全体を1..nに正規化して再描画
+function handleSortOrderChange(target) {
+  const changedEl = target.closest('[data-edit-row]');
+  if (!changedEl) return;
+
+  const items = readEditRowsInDomOrder();
+  const total = items.length;
+  if (!total) return;
+
+  const fromIndex = items.findIndex(item => item.el === changedEl);
+  if (fromIndex < 0) return;
+
+  let newPos = Math.round(Number(target.value)) || 1;
+  newPos = Math.min(Math.max(newPos, 1), total); // 1..n にクランプ
+
+  const [moved] = items.splice(fromIndex, 1);
+  items.splice(newPos - 1, 0, moved);
+
+  const normalized = items.map((item, index) => ({
+    row: item.row,
+    sortOrder: index + 1, // 必ず1から連番に正規化
+    castName: item.castName,
+    workTime: item.workTime,
+    status: item.status,
+    imageStatus: item.imageStatus
+  }));
+
+  state.current = state.current || {};
+  state.current.editRows = normalized;
+  renderEditTable(normalized);
 }
 
 async function saveEditRows() {

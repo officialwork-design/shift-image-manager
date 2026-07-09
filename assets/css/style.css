@@ -136,12 +136,6 @@ body {
     margin-bottom: .25rem;
   }
 
-  /* 名前を見やすく大きめ・横幅100% */
-  .mobile-edit-card .js-cast-name {
-    font-size: 1.05rem;
-    font-weight: 700;
-  }
-
   /* 入力欄・セレクト・ボタン（高さ44px以上・押しやすいサイズ） */
   .mobile-edit-card .form-control,
   .mobile-edit-card .form-select,
@@ -150,6 +144,15 @@ body {
     min-height: 44px;
     font-size: 1rem; /* iOS のズーム防止のため16px相当 */
     border-radius: .75rem;
+  }
+
+  /* 名前select（プルダウン）を見やすく大きめ・横幅100% */
+  .mobile-edit-card .js-cast-name,
+  #addCastName.js-cast-name {
+    width: 100%;
+    min-height: 48px;
+    font-size: 1.1rem;
+    font-weight: 700;
   }
 
   /* 画像状態バッジ */
