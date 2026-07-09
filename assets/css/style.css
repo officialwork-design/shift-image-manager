@@ -102,3 +102,119 @@ body {
     border-radius: .65rem;
   }
 }
+
+@media (max-width: 575.98px) {
+  .edit-table-area {
+    overflow-x: visible;
+    padding: .75rem;
+  }
+
+  .edit-table,
+  .edit-table thead,
+  .edit-table tbody,
+  .edit-table tr,
+  .edit-table th,
+  .edit-table td {
+    display: block;
+  }
+
+  .edit-table thead {
+    display: none;
+  }
+
+  .edit-table tbody {
+    display: grid;
+    gap: .75rem;
+  }
+
+  .edit-table tr {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: .65rem .75rem;
+    background: #ffffff;
+    border: 1px solid #e4e9f2;
+    border-radius: 1rem;
+    padding: .85rem;
+    box-shadow: 0 .25rem .75rem rgba(15, 23, 42, .08);
+  }
+
+  .edit-table td {
+    border: 0 !important;
+    padding: 0 !important;
+    white-space: normal;
+    min-width: 0;
+  }
+
+  .edit-table td::before {
+    display: block;
+    margin-bottom: .25rem;
+    font-size: .72rem;
+    font-weight: 700;
+    color: var(--app-sub);
+  }
+
+  .edit-table td:nth-child(1) {
+    order: 4;
+  }
+
+  .edit-table td:nth-child(1)::before {
+    content: "並び順";
+  }
+
+  .edit-table td:nth-child(2) {
+    order: 1;
+  }
+
+  .edit-table td:nth-child(2)::before {
+    content: "名前";
+  }
+
+  .edit-table td:nth-child(3) {
+    order: 3;
+  }
+
+  .edit-table td:nth-child(3)::before {
+    content: "時間";
+  }
+
+  .edit-table td:nth-child(4) {
+    order: 2;
+  }
+
+  .edit-table td:nth-child(4)::before {
+    content: "状態";
+  }
+
+  .edit-table td:nth-child(5) {
+    order: 5;
+  }
+
+  .edit-table td:nth-child(5)::before {
+    content: "画像";
+  }
+
+  .edit-table td:nth-child(6) {
+    order: 6;
+    display: flex;
+    align-items: end;
+  }
+
+  .edit-table .form-control,
+  .edit-table .form-select {
+    width: 100%;
+    min-height: 44px;
+    font-size: 1rem;
+    border-radius: .75rem;
+  }
+
+  .edit-table .js-cast-name {
+    font-size: 1.05rem;
+    font-weight: 700;
+  }
+
+  .edit-table .btn {
+    width: 100%;
+    min-height: 44px;
+    font-size: .9rem;
+  }
+}
