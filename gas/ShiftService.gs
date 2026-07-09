@@ -19,6 +19,8 @@ const ShiftService = {
       ? parsed.castRows
       : parsed.castNames.map(name => ({ castName: name, workTime: '' }));
 
+    Logger.log('[changeDateAndStore] sourceRows.length=%s / names=%s', sourceRows.length, JSON.stringify(sourceRows.map(r => r.castName))); // 一時ログ（調査用）
+
     if (sourceRows.length) {
       const values = sourceRows.map((item, index) => [
         index + 1,
@@ -59,6 +61,7 @@ const ShiftService = {
     const preparingImageId = imageData.preparingImageId || '';
 
     const editRows = this.readEditRows_(sheet, imageData);
+    Logger.log('[getImageList] editRows.length=%s / names=%s', editRows.length, JSON.stringify(editRows.map(r => r.castName))); // 一時ログ（調査用）
     const activeCastList = [];
     const absentCastList = [];
     const missing = [];

@@ -65,37 +65,62 @@ const SiftService = {
     const lines = String(postText || '').split(/\r?\n/);
     const castRows = [];
     const castNames = [];
+    const unknownNames = []; // CAST_MASTER未登録（除外はしないが調査用に記録）
     let currentTime = '';
 
     lines.forEach(raw => {
       const text = String(raw || '').trim();
       if (!text) return;
 
-      if (/^\d{1,2}月\d{1,2}日/.test(text)) return;
+      if (/^\d{1,2}月\d{1,2}日/.test(text)) {
+        Logger.log('[parsePostText] 除外(日付行): "%s"', text); // 一時ログ（調査用）
+        return;
+      }
 
       if (/^\d{1,2}:\d{2}$/.test(text)) {
         currentTime = text;
         return;
       }
 
-      if (/(営業時間|推し推せ|@oshiose_|http|https|#|OPEN|CLOSE|本日|出勤情報|七夕|海の日|推し握り|生誕|通常)/i.test(text)) return;
+      if (/(営業時間|推し推せ|@oshiose_|http|https|#|OPEN|CLOSE|本日|出勤情報|七夕|海の日|推し握り|生誕|通常)/i.test(text)) {
+        Logger.log('[parsePostText] 除外(フィルタ一致): "%s"', text); // 一時ログ（調査用）
+        return;
+      }
 
       const name = this.normalizeCastName(text);
-      if (!name) return;
-      if (CAST_MASTER.indexOf(name) === -1) return;
-      if (castNames.indexOf(name) !== -1) return;
+      Logger.log('[parsePostText] 正規化: "%s" -> "%s"', text, name); // 一時ログ（調査用）
+
+      if (!name) {
+        Logger.log('[parsePostText] 除外(正規化後が空): "%s"', text); // 一時ログ（調査用）
+        return;
+      }
+      if (castNames.indexOf(name) !== -1) {
+        Logger.log('[parsePostText] 除外(重複): "%s"', name); // 一時ログ（調査用）
+        return;
+      }
+
+      // CAST_MASTER未登録でも除外しない（体入・新人・表記ゆれを編集テーブルに残す）
+      const knownCast = CAST_MASTER.indexOf(name) !== -1;
+      if (!knownCast) {
+        unknownNames.push(name);
+        Logger.log('[parsePostText] CAST_MASTER未登録（保持）: "%s"', name); // 一時ログ（調査用）
+      }
 
       castNames.push(name);
       castRows.push({
         castName: name,
-        workTime: currentTime || ''
+        workTime: currentTime || '',
+        knownCast: knownCast
       });
     });
+
+    Logger.log('[parsePostText] castRows=%s / 未登録=%s', castRows.length, JSON.stringify(unknownNames)); // 一時ログ（調査用）
 
     return {
       eventName: '',
       castNames,
-      castRows
+      castRows,
+      unknownNames
     };
   },
 
