@@ -83,17 +83,6 @@ body {
 }
 
 @media (max-width: 575.98px) {
-  .edit-table {
-    font-size: .78rem;
-  }
-
-  .edit-table .form-control,
-  .edit-table .form-select,
-  .edit-table .btn {
-    font-size: .78rem;
-    padding: .25rem .35rem;
-  }
-
   .photo-grid {
     gap: .35rem;
   }
@@ -101,12 +90,17 @@ body {
   .photo-card {
     border-radius: .65rem;
   }
-}
 
-@media (max-width: 575.98px) {
+  /* ==== 編集テーブル：スマホ用カード表示 ==== */
   .edit-table-area {
     overflow-x: visible;
     padding: .75rem;
+    background: transparent;
+  }
+
+  /* Bootstrap の table-responsive による横スクロールを無効化 */
+  .edit-table-area .table-responsive {
+    overflow-x: visible;
   }
 
   .edit-table,
@@ -118,24 +112,26 @@ body {
     display: block;
   }
 
+  /* ヘッダー行は非表示（ラベルは各セルに表示） */
   .edit-table thead {
     display: none;
   }
 
   .edit-table tbody {
     display: grid;
-    gap: .75rem;
+    gap: .75rem; /* カード間余白 約12px */
   }
 
+  /* 1レコード = 1カード（2列レイアウト） */
   .edit-table tr {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: .65rem .75rem;
+    gap: .75rem 1rem;
     background: #ffffff;
-    border: 1px solid #e4e9f2;
-    border-radius: 1rem;
-    padding: .85rem;
-    box-shadow: 0 .25rem .75rem rgba(15, 23, 42, .08);
+    border: 1px solid #e9edf5;
+    border-radius: 1rem; /* 約16px */
+    padding: 1rem;
+    box-shadow: 0 .35rem 1rem rgba(15, 23, 42, .07); /* 薄い影 */
   }
 
   .edit-table td {
@@ -143,78 +139,68 @@ body {
     padding: 0 !important;
     white-space: normal;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
   }
 
+  /* ラベル（小さいグレー文字） */
   .edit-table td::before {
     display: block;
-    margin-bottom: .25rem;
-    font-size: .72rem;
-    font-weight: 700;
+    margin-bottom: .3rem;
+    font-size: .7rem;
+    font-weight: 600;
+    letter-spacing: .02em;
     color: var(--app-sub);
   }
 
-  .edit-table td:nth-child(1) {
-    order: 4;
-  }
+  /* 表示順：名前・状態 / 時間・並び順 / 画像状態・削除 */
+  .edit-table td:nth-child(1) { order: 4; } /* 並び順 */
+  .edit-table td:nth-child(1)::before { content: "並び順"; }
 
-  .edit-table td:nth-child(1)::before {
-    content: "並び順";
-  }
+  .edit-table td:nth-child(2) { order: 1; } /* 名前 */
+  .edit-table td:nth-child(2)::before { content: "名前"; }
 
-  .edit-table td:nth-child(2) {
-    order: 1;
-  }
+  .edit-table td:nth-child(3) { order: 3; } /* 時間 */
+  .edit-table td:nth-child(3)::before { content: "時間"; }
 
-  .edit-table td:nth-child(2)::before {
-    content: "名前";
-  }
+  .edit-table td:nth-child(4) { order: 2; } /* 状態 */
+  .edit-table td:nth-child(4)::before { content: "状態"; }
 
-  .edit-table td:nth-child(3) {
-    order: 3;
-  }
+  .edit-table td:nth-child(5) { order: 5; } /* 画像状態 */
+  .edit-table td:nth-child(5)::before { content: "画像状態"; }
 
-  .edit-table td:nth-child(3)::before {
-    content: "時間";
-  }
+  .edit-table td:nth-child(6) { order: 6; } /* 削除 */
+  .edit-table td:nth-child(6)::before { content: "削除"; }
 
-  .edit-table td:nth-child(4) {
-    order: 2;
-  }
-
-  .edit-table td:nth-child(4)::before {
-    content: "状態";
-  }
-
-  .edit-table td:nth-child(5) {
-    order: 5;
-  }
-
-  .edit-table td:nth-child(5)::before {
-    content: "画像";
-  }
-
-  .edit-table td:nth-child(6) {
-    order: 6;
-    display: flex;
-    align-items: end;
-  }
-
+  /* 入力欄・セレクトは横幅100%・押しやすいサイズ */
   .edit-table .form-control,
   .edit-table .form-select {
     width: 100%;
-    min-height: 44px;
-    font-size: 1rem;
+    min-height: 46px;
+    font-size: 1rem; /* iOS のズーム防止のため16px相当 */
+    padding: .5rem .75rem;
     border-radius: .75rem;
   }
 
+  /* 名前を一番大きく表示 */
   .edit-table .js-cast-name {
-    font-size: 1.05rem;
+    font-size: 1.25rem;
     font-weight: 700;
+    min-height: 52px;
   }
 
+  /* 画像状態バッジ */
+  .edit-table td:nth-child(5) .badge {
+    align-self: flex-start;
+    font-size: .85rem;
+    padding: .5rem .7rem;
+  }
+
+  /* ボタン（高さ44px以上） */
   .edit-table .btn {
     width: 100%;
-    min-height: 44px;
-    font-size: .9rem;
+    min-height: 46px;
+    font-size: .95rem;
   }
 }
