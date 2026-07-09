@@ -55,6 +55,13 @@ body {
   font-size: .85rem;
 }
 
+/* 編集SIFT_DATA確認テーブル */
+.edit-sift-table th,
+.edit-sift-table td {
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
 .loading {
   position: fixed;
   inset: 0;

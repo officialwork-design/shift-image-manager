@@ -139,12 +139,16 @@ function bindEvents() {
   document.getElementById('checkButton').addEventListener('click', checkImages);
   document.getElementById('exportButton').addEventListener('click', exportImage);
   document.getElementById('siftPreviewSelect').addEventListener('change', onPreviewChange);
+  document.getElementById('resetFromSourceButton').addEventListener('click', resetFromSource);
 
-  // 並び順変更 → 自動繰り上げ・繰り下げ（イベント委譲で再描画後も有効）
+  // 編集テーブルの変更を検知（イベント委譲で再描画後も有効）
   document.getElementById('editTableArea').addEventListener('change', event => {
+    // 並び順変更 → 自動繰り上げ・繰り下げ（テーブル再描画を伴う）
     if (event.target.classList.contains('js-sort-order')) {
       handleSortOrderChange(event.target);
     }
+    // 名前・時間・状態・並び順のいずれの変更でも編集SIFTプレビューを更新（保存前でも反映）
+    renderEditableSiftPreview();
   });
 }
 
@@ -270,9 +274,128 @@ function onPreviewChange() {
 function render(data) {
   renderWarnings(data.missingImages || []);
   renderEditTable(data.editRows || []);
+  renderEditableSiftPreview();
   renderPhotos(data.activeCastList || []);
   renderList('activeList', data.activeCastList || [], true);
   renderList('absentList', data.absentCastList || [], false);
+}
+
+// ==== 編集SIFT_DATA確認（編集テーブルの内容から生成） ====
+function renderEditableSiftPreview() {
+  const rows = collectEditRows(); // 並び順昇順・空名は除外
+  renderEditSiftTable(rows);
+  renderEditSiftPost(rows);
+}
+
+function renderEditSiftTable(rows) {
+  const area = document.getElementById('editSiftTableArea');
+  if (!area) return;
+
+  if (!rows.length) {
+    area.innerHTML = '<div class="text-secondary text-center py-3">編集データなし</div>';
+    return;
+  }
+
+  area.innerHTML = `
+    <table class="table table-sm align-middle mb-0 edit-sift-table">
+      <thead class="table-light">
+        <tr>
+          <th>時間</th>
+          <th>名前</th>
+          <th>ID</th>
+          <th>状態</th>
+          <th>並び順</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map(row => {
+          const id = CAST_OPTIONS[row.castName] || '';
+          const absent = row.status === '休み';
+          return `
+            <tr class="${absent ? 'table-secondary text-secondary' : ''}">
+              <td>${escapeHtml(row.workTime || '未設定')}</td>
+              <td class="fw-bold">${escapeHtml(row.castName)}</td>
+              <td class="text-secondary">${escapeHtml(id)}</td>
+              <td>${escapeHtml(row.status)}</td>
+              <td>${Number(row.sortOrder)}</td>
+            </tr>
+          `;
+        }).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderEditSiftPost(rows) {
+  const body = document.getElementById('editSiftPostPreview');
+  if (!body) return;
+
+  // 状態=休み は投稿風テキストから除外
+  const active = rows.filter(row => row.status !== '休み');
+  if (!active.length) {
+    body.textContent = '';
+    return;
+  }
+
+  // 時間ごとにグループ化（並び順はcollectEditRowsで既に昇順）
+  const groups = new Map();
+  active.forEach(row => {
+    const key = row.workTime || '未設定';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  });
+
+  const times = [...groups.keys()].sort(compareWorkTime);
+  const lines = [];
+  times.forEach(time => {
+    lines.push(time);
+    groups.get(time).forEach(row => {
+      const id = CAST_OPTIONS[row.castName] || '';
+      lines.push(id ? `${row.castName}　${id}` : row.castName);
+    });
+  });
+
+  body.textContent = lines.join('\n');
+}
+
+// "HH:MM" は昇順、"未設定" は末尾
+function compareWorkTime(a, b) {
+  if (a === b) return 0;
+  if (a === '未設定') return 1;
+  if (b === '未設定') return -1;
+  return a < b ? -1 : 1;
+}
+
+// 元データから初期化：SIFT_DATA原本を再解析して編集テーブル・画像生成シートH:Lを戻す
+async function resetFromSource() {
+  const store = document.getElementById('storePicker').value;
+  const date = document.getElementById('datePicker').value;
+
+  if (!store || !date) {
+    showAlert('店舗と日付を選択してください。', 'warning');
+    return;
+  }
+
+  if (!window.confirm('現在の編集内容を破棄して、SIFT_DATA原本から初期化します。よろしいですか？')) {
+    return;
+  }
+
+  try {
+    setProcessing(true, '元データから初期化中');
+    // changeDateAndStore がSIFT_DATA原本を再解析し、画像生成シートH:Lを元データで上書きする
+    await Api.request('changeDateAndStore', { store, date });
+    const data = await Api.request('getImageList', { store, date });
+    state.current = data;
+    render(data);
+    await loadSiftPreview(store, date);
+    showAlert('SIFT_DATA原本から初期化しました。', 'success');
+    setStatus(`初期化 ${data.updatedAt || ''}`, 'success');
+  } catch (err) {
+    showAlert(err.message, 'danger');
+    setStatus('エラー', 'danger');
+  } finally {
+    setProcessing(false);
+  }
 }
 
 function renderWarnings(names) {
@@ -445,6 +568,7 @@ function addCastRow() {
   state.current = state.current || {};
   state.current.editRows = rows;
   renderEditTable(rows);
+  renderEditableSiftPreview();
 
   nameInput.value = '';
 }
@@ -452,6 +576,7 @@ function addCastRow() {
 function removeEditRow(button) {
   const row = button.closest('[data-edit-row]');
   if (row) row.remove();
+  renderEditableSiftPreview();
 }
 
 function collectEditRows() {

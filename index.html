@@ -84,11 +84,29 @@
       </div>
     </section>
 
+    <!-- A: SIFT_DATA原本確認（外部取得の元投稿をそのまま表示。編集は反映しない） -->
     <section class="card shadow-sm mb-3">
-      <div class="card-header bg-white fw-bold">SIFT_DATA確認</div>
+      <div class="card-header bg-white fw-bold">SIFT_DATA原本確認</div>
       <div class="card-body">
         <select id="siftPreviewSelect" class="form-select mb-2"></select>
         <pre id="siftPreviewBody" class="sift-preview mb-0"></pre>
+      </div>
+    </section>
+
+    <!-- B: 編集SIFT_DATA確認（編集テーブルの内容から生成） -->
+    <section class="card shadow-sm mb-3">
+      <div class="card-header bg-white fw-bold">編集SIFT_DATA確認</div>
+      <div class="card-body">
+        <div id="editSiftTableArea" class="table-responsive"></div>
+
+        <div class="mt-3">
+          <div class="fw-bold mb-2">投稿風プレビュー</div>
+          <pre id="editSiftPostPreview" class="sift-preview mb-0"></pre>
+        </div>
+
+        <div class="d-grid d-sm-flex justify-content-sm-end mt-3">
+          <button id="resetFromSourceButton" class="btn btn-outline-secondary rounded-pill">元データから初期化</button>
+        </div>
       </div>
     </section>
 
