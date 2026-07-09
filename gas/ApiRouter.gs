@@ -52,6 +52,8 @@ const ApiRouter = {
         return ShiftService.changeDateAndStore(payload.store, payload.date);
       case 'getImageList':
         return ShiftService.getImageList(payload.store, payload.date);
+      case 'updateShiftRows':
+        return ShiftService.updateShiftRows(payload.rows || []);
       case 'setCastAbsent':
         return ShiftService.setCastAbsent(payload.row, payload.isAbsent);
       case 'refreshImageCache':
