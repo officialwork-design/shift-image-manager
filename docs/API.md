@@ -187,6 +187,7 @@ SIFT_DATA内の投稿文から日付一覧を抽出します。
 ### 用途
 
 現在の画像生成シートから、画像一覧・出勤中・休み設定を取得します。
+JSONPレスポンス軽量化のため、画像はbase64 dataURLではなくGoogle DriveサムネイルURLで返します。
 
 ### payload
 
@@ -207,9 +208,16 @@ SIFT_DATA内の投稿文から日付一覧を抽出します。
   "selectedDate": "7月1日(水)",
   "activeCastList": [],
   "absentCastList": [],
+  "editRows": [],
   "missingImages": [],
   "updatedAt": "12:00:00"
 }
+```
+
+`activeCastList[].imageUrl` は以下の形式です。
+
+```text
+https://drive.google.com/thumbnail?id={fileId}&sz=w600
 ```
 
 ## 11. setCastAbsent

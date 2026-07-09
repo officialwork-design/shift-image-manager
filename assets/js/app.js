@@ -102,6 +102,17 @@ async function loadShift() {
   }
 }
 
+async function refreshCurrentShift() {
+  const store = document.getElementById('storePicker').value;
+  const date = document.getElementById('datePicker').value;
+  if (!store || !date) return;
+
+  const data = await Api.request('getImageList', { store, date });
+  state.current = data;
+  render(data);
+  setStatus(`同期 ${data.updatedAt || ''}`, 'success');
+}
+
 async function loadSiftPreview(store, date) {
   const data = await Api.request('getSiftPreview', { store, date });
   const posts = data.posts || [];
@@ -169,7 +180,7 @@ async function toggleAbsent(row, toAbsent) {
   try {
     setProcessing(true, '更新中');
     await Api.request('setCastAbsent', { row, isAbsent: toAbsent });
-    await loadShift();
+    await refreshCurrentShift();
   } catch (err) {
     showAlert(err.message, 'danger');
   } finally {

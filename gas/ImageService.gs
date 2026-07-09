@@ -32,6 +32,11 @@ const ImageService = {
     return 'data:' + blob.getContentType() + ';base64,' + Utilities.base64Encode(blob.getBytes());
   },
 
+  getThumbnailUrl(fileId) {
+    if (!fileId) return '';
+    return 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(fileId) + '&sz=w600';
+  },
+
   checkImages() {
     const config = ConfigService.getConfig();
     const sheet = SpreadsheetService.getSheet(config.SHEET_IMAGE_GENERATION);
@@ -55,6 +60,18 @@ const ImageService = {
 
   findImageIdForCast(imageMap, castName) {
     return this.findImageIdForCast_(imageMap, castName);
+  },
+
+  getImageStatusForCast(imageData, castName) {
+    const imageMap = imageData && imageData.imageMap ? imageData.imageMap : {};
+    if (this.findImageIdForCast_(imageMap, castName)) return '登録済み';
+    if (imageData && imageData.preparingImageId) return '準備中';
+    return '未登録';
+  },
+
+  getImageIdForCast(imageData, castName) {
+    const imageMap = imageData && imageData.imageMap ? imageData.imageMap : {};
+    return this.findImageIdForCast_(imageMap, castName) || (imageData && imageData.preparingImageId ? imageData.preparingImageId : '');
   },
 
   getDriveImagesRaw_() {

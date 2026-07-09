@@ -107,7 +107,7 @@ const SpreadsheetService = {
 
   ensureImageGenerationSheet_(spreadsheet, config, createdSheets) {
     const sheet = this.ensureSheet_(spreadsheet, config.SHEET_IMAGE_GENERATION, createdSheets);
-    this.ensureSheetSize_(sheet, SHEET_LAYOUT.CAST_END_ROW, SHEET_LAYOUT.CAST_ABSENT_COLUMN);
+    this.ensureSheetSize_(sheet, SHEET_LAYOUT.CAST_END_ROW, SHEET_LAYOUT.IMAGE_STATUS_COLUMN);
   },
 
   ensureSiftDataSheet_(spreadsheet, config, createdSheets) {
