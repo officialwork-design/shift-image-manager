@@ -203,7 +203,14 @@ function renderEditTable(rows) {
     return;
   }
 
-  area.innerHTML = `
+  // スマホ（576px未満）はカード表示、PCは従来のテーブル表示
+  area.innerHTML = window.innerWidth < 576
+    ? renderMobileEditCards(rows)
+    : renderDesktopEditTable(rows);
+}
+
+function renderDesktopEditTable(rows) {
+  return `
     <div class="table-responsive">
       <table class="table table-sm align-middle mb-0 edit-table">
         <thead class="table-light">
@@ -226,7 +233,7 @@ function renderEditTable(rows) {
 
 function renderEditRow(row) {
   return `
-    <tr data-row-id="${Number(row.row || 0)}">
+    <tr data-edit-row data-row-id="${Number(row.row || 0)}" data-image-status="${escapeHtml(String(row.imageStatus || '未登録'))}">
       <td>
         <input class="form-control form-control-sm js-sort-order" type="number" min="1" value="${Number(row.sortOrder || 1)}">
       </td>
@@ -258,6 +265,59 @@ function renderEditRow(row) {
         <button type="button" class="btn btn-sm btn-outline-danger rounded-pill" onclick="removeEditRow(this)">削除</button>
       </td>
     </tr>
+  `;
+}
+
+function renderMobileEditCards(rows) {
+  return `
+    <div class="mobile-edit-list">
+      ${rows.map(row => renderMobileEditCard(row)).join('')}
+    </div>
+  `;
+}
+
+function renderMobileEditCard(row) {
+  const workTimeOptions = WORK_TIME_OPTIONS.map(time => `
+    <option value="${escapeHtml(time)}" ${String(row.workTime || '') === time ? 'selected' : ''}>
+      ${time ? escapeHtml(time) : '未設定'}
+    </option>
+  `).join('');
+
+  const statusOptions = SHIFT_STATUSES.map(status => `
+    <option value="${escapeHtml(status)}" ${String(row.status || '出勤') === status ? 'selected' : ''}>
+      ${escapeHtml(status)}
+    </option>
+  `).join('');
+
+  return `
+    <div class="mobile-edit-card" data-edit-row data-row-id="${Number(row.row || 0)}" data-image-status="${escapeHtml(String(row.imageStatus || '未登録'))}">
+      <div class="mobile-edit-grid">
+        <div class="mobile-edit-field mobile-edit-field--name">
+          <label>名前</label>
+          <input class="form-control js-cast-name" value="${escapeHtml(row.castName || row.name || '')}">
+        </div>
+        <div class="mobile-edit-field">
+          <label>状態</label>
+          <select class="form-select js-status">${statusOptions}</select>
+        </div>
+        <div class="mobile-edit-field">
+          <label>時間</label>
+          <select class="form-select js-work-time">${workTimeOptions}</select>
+        </div>
+        <div class="mobile-edit-field">
+          <label>並び順</label>
+          <input class="form-control js-sort-order" type="number" min="1" value="${Number(row.sortOrder || 1)}">
+        </div>
+        <div class="mobile-edit-field">
+          <label>画像状態</label>
+          ${renderImageStatusBadge(row.imageStatus)}
+        </div>
+        <div class="mobile-edit-field">
+          <label>削除</label>
+          <button type="button" class="btn btn-outline-danger" onclick="removeEditRow(this)">削除</button>
+        </div>
+      </div>
+    </div>
   `;
 }
 
@@ -302,18 +362,22 @@ function addCastRow() {
 }
 
 function removeEditRow(button) {
-  const tr = button.closest('tr');
-  if (tr) tr.remove();
+  const row = button.closest('[data-edit-row]');
+  if (row) row.remove();
 }
 
 function collectEditRows() {
   const rows = [];
-  document.querySelectorAll('#editTableArea tbody tr').forEach((tr, index) => {
+  // table・mobile card 両方の行を対象にする
+  document.querySelectorAll('#editTableArea [data-edit-row]').forEach((el, index) => {
+    const nameEl = el.querySelector('.js-cast-name');
+    if (!nameEl) return;
     rows.push({
-      sortOrder: Number(tr.querySelector('.js-sort-order').value) || index + 1,
-      castName: tr.querySelector('.js-cast-name').value.trim(),
-      workTime: tr.querySelector('.js-work-time').value,
-      status: tr.querySelector('.js-status').value
+      sortOrder: Number(el.querySelector('.js-sort-order').value) || index + 1,
+      castName: nameEl.value.trim(),
+      workTime: el.querySelector('.js-work-time').value,
+      status: el.querySelector('.js-status').value,
+      imageStatus: el.dataset.imageStatus || '未登録'
     });
   });
 
