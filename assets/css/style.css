@@ -4,11 +4,101 @@
   --app-sub: #758097;
   --line-green: #06c755;
 }
-body { background: var(--app-bg); color: var(--app-text); }
-.photo-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; }
-@media (min-width: 768px) { .photo-grid { grid-template-columns: repeat(5, 1fr); } }
-.photo-card { position: relative; aspect-ratio: 3 / 4; overflow: hidden; border-radius: 1rem; background: #111827; }
-.photo-card img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.photo-card .badge { position: absolute; right: .4rem; bottom: .4rem; }
-.sift-preview { min-height: 120px; max-height: 260px; overflow: auto; white-space: pre-wrap; background: #0f172a; color: #e5e7eb; border-radius: 1rem; padding: 1rem; font-size: .85rem; }
-.loading { position: fixed; inset: 0; z-index: 2000; background: rgba(15, 23, 42, .8); display: flex; flex-direction: column; align-items: center; justify-content: center; }
+
+body {
+  background: var(--app-bg);
+  color: var(--app-text);
+}
+
+.photo-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: .5rem;
+}
+
+@media (min-width: 768px) {
+  .photo-grid {
+    grid-template-columns: repeat(5, 1fr);
+  }
+}
+
+.photo-card {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  border-radius: 1rem;
+  background: #111827;
+}
+
+.photo-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.photo-card .badge {
+  position: absolute;
+  right: .4rem;
+  bottom: .4rem;
+}
+
+.sift-preview {
+  min-height: 120px;
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  background: #0f172a;
+  color: #e5e7eb;
+  border-radius: 1rem;
+  padding: 1rem;
+  font-size: .85rem;
+}
+
+.loading {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(15, 23, 42, .8);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.edit-table-area {
+  overflow-x: auto;
+}
+
+.edit-table th,
+.edit-table td {
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.export-card {
+  max-width: 980px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+@media (max-width: 575.98px) {
+  .edit-table {
+    font-size: .78rem;
+  }
+
+  .edit-table .form-control,
+  .edit-table .form-select,
+  .edit-table .btn {
+    font-size: .78rem;
+    padding: .25rem .35rem;
+  }
+
+  .photo-grid {
+    gap: .35rem;
+  }
+
+  .photo-card {
+    border-radius: .65rem;
+  }
+}
