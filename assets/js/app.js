@@ -1,9 +1,30 @@
-const state = { current: null, isProcessing: false };
+const state = {
+  current: null,
+  isProcessing: false
+};
+
+const WORK_TIME_OPTIONS = [
+  '',
+  '17:00',
+  '17:30',
+  '18:00',
+  '18:30',
+  '19:00',
+  '19:30',
+  '20:00',
+  '20:30',
+  '21:00',
+  '21:30',
+  '22:00'
+];
+
+const SHIFT_STATUSES = ['出勤', '休み'];
 
 window.addEventListener('DOMContentLoaded', boot);
 
 async function boot() {
   renderStoreOptions();
+  renderAddWorkTimeOptions();
   bindEvents();
   await loadDateList();
   setStatus('準備完了', 'success');
@@ -11,14 +32,26 @@ async function boot() {
 
 function renderStoreOptions() {
   const picker = document.getElementById('storePicker');
-  picker.innerHTML = (APP_CONFIG.STORES || []).map(store => `<option value="${escapeHtml(store)}">${escapeHtml(store)}</option>`).join('');
+  picker.innerHTML = (APP_CONFIG.STORES || [])
+    .map(store => `<option value="${escapeHtml(store)}">${escapeHtml(store)}</option>`)
+    .join('');
   picker.value = APP_CONFIG.DEFAULT_STORE || 'KABUKI';
+}
+
+function renderAddWorkTimeOptions() {
+  const select = document.getElementById('addWorkTime');
+  select.innerHTML = WORK_TIME_OPTIONS
+    .map(time => `<option value="${escapeHtml(time)}">${time ? escapeHtml(time) : '未設定'}</option>`)
+    .join('');
+  select.value = '18:00';
 }
 
 function bindEvents() {
   document.getElementById('storePicker').addEventListener('change', loadShift);
   document.getElementById('datePicker').addEventListener('change', loadShift);
   document.getElementById('reloadButton').addEventListener('click', loadShift);
+  document.getElementById('saveRowsButton').addEventListener('click', saveEditRows);
+  document.getElementById('addCastButton').addEventListener('click', addCastRow);
   document.getElementById('checkButton').addEventListener('click', checkImages);
   document.getElementById('exportButton').addEventListener('click', exportImage);
   document.getElementById('siftPreviewSelect').addEventListener('change', onPreviewChange);
@@ -31,7 +64,7 @@ async function loadDateList() {
   const gasUrl = (window.APP_CONFIG && window.APP_CONFIG.GAS_WEB_APP_URL) || '';
   if (!gasUrl) {
     setStatus('日付は日本時間で生成 / GAS未設定', 'warning');
-    showAlert('GAS_WEB_APP_URL が未設定のため、日付は日本時間の今月分を表示しています。API連携には config.js へWebアプリURLを設定してください。', 'warning');
+    showAlert('GAS_WEB_APP_URL が未設定のため、日付は日本時間の今月分を表示しています。', 'warning');
     return;
   }
 
@@ -48,7 +81,9 @@ async function loadDateList() {
 
 function renderDateOptions(dates) {
   const picker = document.getElementById('datePicker');
-  picker.innerHTML = '<option value="">日付選択</option>' + dates.map(d => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('');
+  picker.innerHTML = '<option value="">日付選択</option>' + dates
+    .map(date => `<option value="${escapeHtml(date)}">${escapeHtml(date)}</option>`)
+    .join('');
 }
 
 function getCurrentMonthDatesJst() {
@@ -74,16 +109,17 @@ function getJapanDateParts(date) {
     month: 'numeric',
     day: 'numeric'
   });
-  const parts = formatter.formatToParts(date).reduce((acc, part) => {
+
+  return formatter.formatToParts(date).reduce((acc, part) => {
     if (part.type !== 'literal') acc[part.type] = part.value;
     return acc;
   }, {});
-  return parts;
 }
 
 async function loadShift() {
   const store = document.getElementById('storePicker').value;
   const date = document.getElementById('datePicker').value;
+
   if (!store || !date || state.isProcessing) return;
 
   try {
@@ -105,6 +141,7 @@ async function loadShift() {
 async function refreshCurrentShift() {
   const store = document.getElementById('storePicker').value;
   const date = document.getElementById('datePicker').value;
+
   if (!store || !date) return;
 
   const data = await Api.request('getImageList', { store, date });
@@ -118,13 +155,17 @@ async function loadSiftPreview(store, date) {
   const posts = data.posts || [];
   const select = document.getElementById('siftPreviewSelect');
   const body = document.getElementById('siftPreviewBody');
+
   if (!posts.length) {
     select.innerHTML = '<option value="">SIFT_DATAなし</option>';
     body.textContent = '';
     return;
   }
+
   select.dataset.posts = JSON.stringify(posts);
-  select.innerHTML = posts.map((p, i) => `<option value="${i}">${escapeHtml(p.label)}</option>`).join('');
+  select.innerHTML = posts
+    .map((post, index) => `<option value="${index}">${escapeHtml(post.label)}</option>`)
+    .join('');
   select.value = '0';
   body.textContent = posts[0].text || '';
 }
@@ -137,6 +178,8 @@ function onPreviewChange() {
 
 function render(data) {
   renderWarnings(data.missingImages || []);
+  renderEditTable(data.editRows || []);
+  renderCastCandidates(data.editRows || []);
   renderPhotos(data.activeCastList || []);
   renderList('activeList', data.activeCastList || [], true);
   renderList('absentList', data.absentCastList || [], false);
@@ -144,16 +187,169 @@ function render(data) {
 
 function renderWarnings(names) {
   const area = document.getElementById('alertArea');
-  if (!names.length) { area.innerHTML = ''; return; }
+  if (!names.length) {
+    area.innerHTML = '';
+    return;
+  }
+
   area.innerHTML = `<div class="alert alert-warning">画像未登録: ${names.map(escapeHtml).join('、')}</div>`;
+}
+
+function renderEditTable(rows) {
+  const area = document.getElementById('editTableArea');
+
+  if (!rows.length) {
+    area.innerHTML = '<div class="text-secondary text-center py-4">編集データなし</div>';
+    return;
+  }
+
+  area.innerHTML = `
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0 edit-table">
+        <thead class="table-light">
+          <tr>
+            <th style="width:72px;">順</th>
+            <th>名前</th>
+            <th style="width:110px;">時間</th>
+            <th style="width:110px;">状態</th>
+            <th style="width:90px;">画像</th>
+            <th style="width:64px;"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(row => renderEditRow(row)).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderEditRow(row) {
+  return `
+    <tr data-row-id="${Number(row.row || 0)}">
+      <td>
+        <input class="form-control form-control-sm js-sort-order" type="number" min="1" value="${Number(row.sortOrder || 1)}">
+      </td>
+      <td>
+        <input class="form-control form-control-sm js-cast-name" value="${escapeHtml(row.castName || row.name || '')}">
+      </td>
+      <td>
+        <select class="form-select form-select-sm js-work-time">
+          ${WORK_TIME_OPTIONS.map(time => `
+            <option value="${escapeHtml(time)}" ${String(row.workTime || '') === time ? 'selected' : ''}>
+              ${time ? escapeHtml(time) : '未設定'}
+            </option>
+          `).join('')}
+        </select>
+      </td>
+      <td>
+        <select class="form-select form-select-sm js-status">
+          ${SHIFT_STATUSES.map(status => `
+            <option value="${escapeHtml(status)}" ${String(row.status || '出勤') === status ? 'selected' : ''}>
+              ${escapeHtml(status)}
+            </option>
+          `).join('')}
+        </select>
+      </td>
+      <td>
+        ${renderImageStatusBadge(row.imageStatus)}
+      </td>
+      <td>
+        <button type="button" class="btn btn-sm btn-outline-danger rounded-pill" onclick="removeEditRow(this)">削除</button>
+      </td>
+    </tr>
+  `;
+}
+
+function renderImageStatusBadge(status) {
+  const value = String(status || '未登録');
+  if (value === '登録済み') return '<span class="badge text-bg-success">登録済み</span>';
+  if (value === '準備中') return '<span class="badge text-bg-warning">準備中</span>';
+  return '<span class="badge text-bg-secondary">未登録</span>';
+}
+
+function renderCastCandidates(rows) {
+  const datalist = document.getElementById('castNameCandidates');
+  const names = [...new Set(rows.map(row => row.castName || row.name).filter(Boolean))];
+  datalist.innerHTML = names.map(name => `<option value="${escapeHtml(name)}"></option>`).join('');
+}
+
+function addCastRow() {
+  const nameInput = document.getElementById('addCastName');
+  const workTimeInput = document.getElementById('addWorkTime');
+  const statusInput = document.getElementById('addStatus');
+
+  const castName = nameInput.value.trim();
+  if (!castName) {
+    showAlert('追加するキャスト名を入力してください。', 'warning');
+    return;
+  }
+
+  const rows = collectEditRows();
+  rows.push({
+    sortOrder: rows.length + 1,
+    castName,
+    workTime: workTimeInput.value,
+    status: statusInput.value,
+    imageStatus: '未登録'
+  });
+
+  state.current = state.current || {};
+  state.current.editRows = rows;
+  renderEditTable(rows);
+
+  nameInput.value = '';
+}
+
+function removeEditRow(button) {
+  const tr = button.closest('tr');
+  if (tr) tr.remove();
+}
+
+function collectEditRows() {
+  const rows = [];
+  document.querySelectorAll('#editTableArea tbody tr').forEach((tr, index) => {
+    rows.push({
+      sortOrder: Number(tr.querySelector('.js-sort-order').value) || index + 1,
+      castName: tr.querySelector('.js-cast-name').value.trim(),
+      workTime: tr.querySelector('.js-work-time').value,
+      status: tr.querySelector('.js-status').value
+    });
+  });
+
+  return rows
+    .filter(row => row.castName)
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+async function saveEditRows() {
+  const rows = collectEditRows();
+
+  if (!rows.length) {
+    showAlert('保存する行がありません。', 'warning');
+    return;
+  }
+
+  try {
+    setProcessing(true, '編集内容を保存中');
+    await Api.request('updateShiftRows', { rows });
+    await refreshCurrentShift();
+    showAlert('編集内容を保存しました。', 'success');
+  } catch (err) {
+    showAlert(err.message, 'danger');
+  } finally {
+    setProcessing(false);
+  }
 }
 
 function renderPhotos(list) {
   const grid = document.getElementById('photoGrid');
+
   if (!list.length) {
     grid.innerHTML = '<div class="text-secondary text-center py-4">画像なし</div>';
     return;
   }
+
   grid.innerHTML = list.map(c => `
     <article class="photo-card shadow-sm">
       <img src="${escapeHtml(c.imageUrl)}" alt="${escapeHtml(c.name)}" loading="lazy">
@@ -164,14 +360,21 @@ function renderPhotos(list) {
 
 function renderList(id, list, active) {
   const target = document.getElementById(id);
+
   if (!list.length) {
     target.innerHTML = '<div class="list-group-item text-secondary">対象なし</div>';
     return;
   }
+
   target.innerHTML = list.map(c => `
     <div class="list-group-item d-flex justify-content-between align-items-center gap-2">
-      <span class="fw-bold ${active ? '' : 'text-decoration-line-through text-secondary'}">${escapeHtml(c.name)}</span>
-      <button class="btn btn-sm ${active ? 'btn-outline-secondary' : 'btn-primary'} rounded-pill" onclick="toggleAbsent(${Number(c.row)}, ${active})">${active ? '休み' : '戻す'}</button>
+      <span class="fw-bold ${active ? '' : 'text-decoration-line-through text-secondary'}">
+        ${escapeHtml(c.name)}
+        ${c.workTime ? `<span class="badge text-bg-light border ms-1">${escapeHtml(c.workTime)}</span>` : ''}
+      </span>
+      <button class="btn btn-sm ${active ? 'btn-outline-secondary' : 'btn-primary'} rounded-pill" onclick="toggleAbsent(${Number(c.row)}, ${active})">
+        ${active ? '休み' : '戻す'}
+      </button>
     </div>
   `).join('');
 }
@@ -192,7 +395,10 @@ async function checkImages() {
   try {
     setProcessing(true, '画像確認中');
     const result = await Api.request('checkImages');
-    showAlert(result.missingCount ? `画像未登録: ${result.missingNames.join('、')}` : '画像未登録はありません。', result.missingCount ? 'warning' : 'success');
+    showAlert(
+      result.missingCount ? `画像未登録: ${result.missingNames.join('、')}` : '画像未登録はありません。',
+      result.missingCount ? 'warning' : 'success'
+    );
   } catch (err) {
     showAlert(err.message, 'danger');
   } finally {
@@ -202,7 +408,12 @@ async function checkImages() {
 
 async function exportImage() {
   const target = document.getElementById('captureArea');
-  const canvas = await html2canvas(target, { backgroundColor: '#ffffff', scale: 2 });
+  const canvas = await html2canvas(target, {
+    backgroundColor: '#ffffff',
+    scale: 2,
+    useCORS: true
+  });
+
   const a = document.createElement('a');
   a.href = canvas.toDataURL('image/png');
   a.download = 'shift-image.png';
@@ -222,9 +433,20 @@ function setStatus(text, type) {
 }
 
 function showAlert(message, type) {
-  document.getElementById('alertArea').innerHTML = `<div class="alert alert-${type} alert-dismissible fade show"><span>${escapeHtml(message)}</span><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+  document.getElementById('alertArea').innerHTML = `
+    <div class="alert alert-${type} alert-dismissible fade show">
+      <span>${escapeHtml(message)}</span>
+      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+  `;
 }
 
 function escapeHtml(value) {
-  return String(value ?? '').replace(/[&<>'"]/g, s => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#039;', '"': '&quot;' }[s]));
+  return String(value ?? '').replace(/[&<>'"]/g, s => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    "'": '&#039;',
+    '"': '&quot;'
+  }[s]));
 }

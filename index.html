@@ -31,6 +31,7 @@
           </div>
           <div class="col-12 col-md-6 d-grid d-md-flex gap-2 justify-content-md-end">
             <button id="reloadButton" class="btn btn-outline-primary rounded-pill">再読み込み</button>
+            <button id="saveRowsButton" class="btn btn-primary rounded-pill">編集保存</button>
             <button id="checkButton" class="btn btn-warning rounded-pill">画像確認</button>
             <button id="exportButton" class="btn btn-success rounded-pill">画像保存</button>
           </div>
@@ -40,7 +41,43 @@
 
     <div id="alertArea"></div>
 
-    <section id="captureArea" class="card shadow-sm mb-3">
+    <section class="card shadow-sm mb-3">
+      <div class="card-header bg-white fw-bold">キャスト追加</div>
+      <div class="card-body">
+        <div class="row g-2 align-items-end">
+          <div class="col-12 col-md-4">
+            <label class="form-label fw-bold">名前</label>
+            <input id="addCastName" class="form-control" list="castNameCandidates" placeholder="名前を入力">
+            <datalist id="castNameCandidates"></datalist>
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label fw-bold">出勤時間</label>
+            <select id="addWorkTime" class="form-select"></select>
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label fw-bold">状態</label>
+            <select id="addStatus" class="form-select">
+              <option value="出勤">出勤</option>
+              <option value="休み">休み</option>
+            </select>
+          </div>
+          <div class="col-12 col-md-2 d-grid">
+            <button id="addCastButton" class="btn btn-outline-primary rounded-pill">追加</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card shadow-sm mb-3">
+      <div class="card-header bg-white fw-bold">編集テーブル</div>
+      <div class="card-body p-0">
+        <div id="editTableArea" class="edit-table-area">
+          <div class="text-secondary text-center py-4">店舗と日付を選択してください</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="captureArea" class="card shadow-sm mb-3 export-card">
       <div class="card-body">
         <div id="photoGrid" class="photo-grid">
           <div class="text-secondary text-center py-4">店舗と日付を選択してください</div>

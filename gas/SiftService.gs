@@ -63,22 +63,40 @@ const SiftService = {
 
   parsePostText(postText) {
     const lines = String(postText || '').split(/\r?\n/);
+    const castRows = [];
     const castNames = [];
+    let currentTime = '';
 
     lines.forEach(raw => {
       const text = String(raw || '').trim();
       if (!text) return;
+
       if (/^\d{1,2}月\d{1,2}日/.test(text)) return;
-      if (/^\d{1,2}:\d{2}$/.test(text)) return;
+
+      if (/^\d{1,2}:\d{2}$/.test(text)) {
+        currentTime = text;
+        return;
+      }
+
       if (/(営業時間|推し推せ|@oshiose_|http|https|#|OPEN|CLOSE|本日|出勤情報|七夕|海の日|推し握り|生誕|通常)/i.test(text)) return;
 
       const name = this.normalizeCastName(text);
       if (!name) return;
       if (CAST_MASTER.indexOf(name) === -1) return;
-      if (castNames.indexOf(name) === -1) castNames.push(name);
+      if (castNames.indexOf(name) !== -1) return;
+
+      castNames.push(name);
+      castRows.push({
+        castName: name,
+        workTime: currentTime || ''
+      });
     });
 
-    return { eventName: '', castNames };
+    return {
+      eventName: '',
+      castNames,
+      castRows
+    };
   },
 
   normalizeCastName(text) {
@@ -89,6 +107,7 @@ const SiftService = {
       .replace(/\s+/g, '')
       .replace(/　+/g, '')
       .trim();
+
     if (!name) return '';
 
     const aliases = {
@@ -100,6 +119,7 @@ const SiftService = {
       'みあは': 'みあは',
       '体入みあは': '体入みあは'
     };
+
     return aliases[name] || name;
   },
 
