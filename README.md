@@ -188,7 +188,7 @@ clasp deploy
 
 画像取得元は `ID管理` シートの `DRIVE_IMAGE_FOLDER_ID` を主フォルダーとして使用します。
 
-追加フォルダーは `DRIVE_IMAGE_FOLDER_IDS` にカンマ区切りまたは改行区切りで指定できます。フォルダーIDだけでなく、Google Drive のフォルダーURLも指定できます。
+追加フォルダーは `DRIVE_IMAGE_FOLDER_IDS` にカンマ区切りまたは改行区切りで指定できます。フォルダーIDだけでなく、Google Drive のフォルダーURLも指定できます。指定フォルダー配下のサブフォルダーも画像取得対象です。
 
 ```text
 17zZbEhzgr3Fp_yfdox3zWLhO5kSUwvhZ

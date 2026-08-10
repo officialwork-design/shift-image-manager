@@ -103,7 +103,7 @@ B2: AKIBA 7月2日投稿
 
 Google Drive の `DRIVE_IMAGE_FOLDER_ID` と `DRIVE_IMAGE_FOLDER_IDS` に設定されたフォルダから画像を取得します。
 
-`DRIVE_IMAGE_FOLDER_IDS` はカンマ区切りまたは改行区切りで複数指定できます。フォルダーIDだけでなく、Google Drive のフォルダーURLも指定できます。
+`DRIVE_IMAGE_FOLDER_IDS` はカンマ区切りまたは改行区切りで複数指定できます。フォルダーIDだけでなく、Google Drive のフォルダーURLも指定できます。指定フォルダー配下のサブフォルダーも画像取得対象です。
 
 画像ファイル名から拡張子を除いた文字列をキャスト名として扱います。
 

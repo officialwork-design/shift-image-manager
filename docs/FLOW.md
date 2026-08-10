@@ -128,6 +128,7 @@ store から対象行を決定
 ID管理シートから DRIVE_IMAGE_FOLDER_ID / DRIVE_IMAGE_FOLDER_IDS を取得
 ↓
 Google Drive フォルダ内のファイルを複数フォルダから取得
+  指定フォルダ配下のサブフォルダも走査
 ↓
 ファイル名から拡張子を除外
 ↓
