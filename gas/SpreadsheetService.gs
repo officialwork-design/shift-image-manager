@@ -155,6 +155,7 @@ const SpreadsheetService = {
       ['SPREADSHEET_ID', config.SPREADSHEET_ID || BOOTSTRAP_SPREADSHEET_ID, 'id', 'Spreadsheet ID', 'false', now, ''],
       ['SCRIPT_ID', config.SCRIPT_ID || SCRIPT_ID, 'id', 'Apps Script ID', 'false', now, ''],
       ['DRIVE_IMAGE_FOLDER_ID', config.DRIVE_IMAGE_FOLDER_ID || '', 'id', '画像取得フォルダ', 'true', now, ''],
+      ['DRIVE_IMAGE_FOLDER_IDS', config.DRIVE_IMAGE_FOLDER_IDS || '', 'id-list', '追加画像取得フォルダ。カンマまたは改行区切りで複数指定可', 'true', now, ''],
       ['DRIVE_OUTPUT_FOLDER_ID', config.DRIVE_OUTPUT_FOLDER_ID || '', 'id', '出力フォルダ', 'true', now, '現時点では未使用'],
       ['SHEET_ID_MANAGEMENT', config.SHEET_ID_MANAGEMENT || DEFAULT_CONFIG.SHEET_ID_MANAGEMENT, 'sheet', 'ID管理シート名', 'false', now, ''],
       ['SHEET_SPECIFICATION', config.SHEET_SPECIFICATION || DEFAULT_CONFIG.SHEET_SPECIFICATION, 'sheet', '仕様書シート名', 'false', now, ''],

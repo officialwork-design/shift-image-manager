@@ -125,9 +125,9 @@ store から対象行を決定
 ## 7. 画像取得フロー
 
 ```text
-ID管理シートから DRIVE_IMAGE_FOLDER_ID を取得
+ID管理シートから DRIVE_IMAGE_FOLDER_ID / DRIVE_IMAGE_FOLDER_IDS を取得
 ↓
-Google Drive フォルダ内のファイルを取得
+Google Drive フォルダ内のファイルを複数フォルダから取得
 ↓
 ファイル名から拡張子を除外
 ↓
@@ -187,7 +187,7 @@ Drive画像マップを取得
 ↓
 refreshImageCache 実行
 ↓
-Driveフォルダを再スキャン
+Driveフォルダ群を再スキャン
 ↓
 キャスト名 → fileId マップを再作成
 ↓

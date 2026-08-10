@@ -1,4 +1,4 @@
-const IMAGE_CACHE_KEY = 'SHIFT_IMAGE_MAP_V1';
+const IMAGE_CACHE_KEY = 'SHIFT_IMAGE_MAP_V2';
 
 const ImageService = {
   refreshCache() {
@@ -77,25 +77,69 @@ const ImageService = {
 
   getDriveImagesRaw_() {
     const config = ConfigService.getConfig();
-    const folderId = config.DRIVE_IMAGE_FOLDER_ID || DEFAULT_CONFIG.DRIVE_IMAGE_FOLDER_ID;
-    const files = DriveApp.getFolderById(folderId).getFiles();
+    const folderIds = this.getImageFolderIds_(config);
     const imageMap = {};
     let preparingImageId = '';
+    const folderErrors = [];
 
-    while (files.hasNext()) {
-      const file = files.next();
-      const baseName = Utils.stripExtension(file.getName()).trim();
-      const normalizedName = SiftService.normalizeCastName(baseName) || Utils.normalize(baseName);
-      if (baseName === '準備中' || normalizedName === '準備中') {
-        preparingImageId = file.getId();
-        continue;
+    folderIds.forEach(folderId => {
+      try {
+        const files = DriveApp.getFolderById(folderId).getFiles();
+        while (files.hasNext()) {
+          const file = files.next();
+          const baseName = Utils.stripExtension(file.getName()).trim();
+          const normalizedName = SiftService.normalizeCastName(baseName) || Utils.normalize(baseName);
+          if (baseName === '準備中' || normalizedName === '準備中') {
+            if (!preparingImageId) preparingImageId = file.getId();
+            continue;
+          }
+
+          if (baseName && !imageMap[baseName]) imageMap[baseName] = file.getId();
+          if (normalizedName && !imageMap[normalizedName]) imageMap[normalizedName] = file.getId();
+        }
+      } catch (err) {
+        folderErrors.push({ folderId, message: Utils.errorMessage(err) });
+        LogService.error('ImageService.getDriveImagesRaw', err, { folderId });
       }
+    });
 
-      if (baseName) imageMap[baseName] = file.getId();
-      if (normalizedName && !imageMap[normalizedName]) imageMap[normalizedName] = file.getId();
+    if (folderIds.length && folderErrors.length === folderIds.length) {
+      throw new Error('画像フォルダを読み込めません: ' + folderErrors.map(item => item.folderId).join(', '));
     }
 
-    return { imageMap, preparingImageId };
+    return { imageMap, preparingImageId, folderIds, folderErrors };
+  },
+
+  getImageFolderIds_(config) {
+    const rawValues = [
+      config.DRIVE_IMAGE_FOLDER_ID || DEFAULT_CONFIG.DRIVE_IMAGE_FOLDER_ID,
+      config.DRIVE_IMAGE_FOLDER_IDS || ''
+    ];
+    const seen = {};
+    const folderIds = [];
+
+    rawValues
+      .join('\n')
+      .split(/[\s,;]+/)
+      .map(value => this.extractFolderId_(value))
+      .filter(Boolean)
+      .forEach(folderId => {
+        if (seen[folderId]) return;
+        seen[folderId] = true;
+        folderIds.push(folderId);
+      });
+
+    return folderIds;
+  },
+
+  extractFolderId_(value) {
+    const text = String(value || '').trim();
+    if (!text) return '';
+    const folderMatch = text.match(/\/folders\/([A-Za-z0-9_-]+)/);
+    if (folderMatch) return folderMatch[1];
+    const idMatch = text.match(/[?&]id=([A-Za-z0-9_-]+)/);
+    if (idMatch) return idMatch[1];
+    return text;
   },
 
   findImageIdForCast_(imageMap, castName) {

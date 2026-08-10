@@ -31,6 +31,7 @@ const DEFAULT_CONFIG = {
   SHEET_IMAGE_CHECK: '画像チェック',
   SHEET_ERROR_LOG: 'エラーログ',
   DRIVE_IMAGE_FOLDER_ID: '1Ob0yiSr0yP_sHa72t9xg8xmGn5YEUYR-',
+  DRIVE_IMAGE_FOLDER_IDS: '17zZbEhzgr3Fp_yfdox3zWLhO5kSUwvhZ',
   DRIVE_OUTPUT_FOLDER_ID: '',
   TIMEZONE: 'Asia/Tokyo',
   APP_MODE: 'production',

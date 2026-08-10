@@ -33,6 +33,7 @@ https://officialwork-design.github.io/shift-image-manager/
 | GAS Script ID | 1m0G9Y3ATR885RDD1LBEjp5Zsc5Ts4qv_hq1q9kFw3Xe0WmKy5DQVnATS |
 | Spreadsheet ID | 1s-Ga2SpUWzoKQHSOymqo5MCO_wgdevFKrQWHUIKvct0 |
 | Drive Image Folder ID | 1Ob0yiSr0yP_sHa72t9xg8xmGn5YEUYR- |
+| Drive Additional Image Folder ID | 17zZbEhzgr3Fp_yfdox3zWLhO5kSUwvhZ |
 
 ## 方針
 
@@ -40,7 +41,7 @@ https://officialwork-design.github.io/shift-image-manager/
 - フロントエンドは GitHub Pages で公開する。
 - バックエンドは Google Apps Script WebApp とする。
 - データは Google Spreadsheet で管理する。
-- 画像は Google Drive の指定フォルダから取得する。
+- 画像は Google Drive の指定フォルダから取得する。追加取得フォルダは `DRIVE_IMAGE_FOLDER_IDS` で複数指定できる。
 - UI は Bootstrap 5.3 以上を標準とする。
 - GitHub Pages では `google.script.run` を使用しない。
 
@@ -181,6 +182,16 @@ clasp deploy
 1行目: KABUKI
 2行目: AKIBA
 列方向: 日付別投稿
+```
+
+## 画像取得フォルダー
+
+画像取得元は `ID管理` シートの `DRIVE_IMAGE_FOLDER_ID` を主フォルダーとして使用します。
+
+追加フォルダーは `DRIVE_IMAGE_FOLDER_IDS` にカンマ区切りまたは改行区切りで指定できます。フォルダーIDだけでなく、Google Drive のフォルダーURLも指定できます。
+
+```text
+17zZbEhzgr3Fp_yfdox3zWLhO5kSUwvhZ
 ```
 
 ## 実装順

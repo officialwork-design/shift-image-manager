@@ -49,6 +49,7 @@ Google Drive
 | GAS Script ID | 1m0G9Y3ATR885RDD1LBEjp5Zsc5Ts4qv_hq1q9kFw3Xe0WmKy5DQVnATS |
 | Spreadsheet ID | 1s-Ga2SpUWzoKQHSOymqo5MCO_wgdevFKrQWHUIKvct0 |
 | Drive Image Folder ID | 1Ob0yiSr0yP_sHa72t9xg8xmGn5YEUYR- |
+| Drive Additional Image Folder ID | 17zZbEhzgr3Fp_yfdox3zWLhO5kSUwvhZ |
 
 ## 6. ID管理方針
 
@@ -100,7 +101,9 @@ B2: AKIBA 7月2日投稿
 
 ## 10. 画像取得仕様
 
-Google Drive の `DRIVE_IMAGE_FOLDER_ID` に設定されたフォルダから画像を取得します。
+Google Drive の `DRIVE_IMAGE_FOLDER_ID` と `DRIVE_IMAGE_FOLDER_IDS` に設定されたフォルダから画像を取得します。
+
+`DRIVE_IMAGE_FOLDER_IDS` はカンマ区切りまたは改行区切りで複数指定できます。フォルダーIDだけでなく、Google Drive のフォルダーURLも指定できます。
 
 画像ファイル名から拡張子を除いた文字列をキャスト名として扱います。
 

@@ -99,6 +99,7 @@ GAS_WEB_APP_URL
   "stores": ["KABUKI", "AKIBA"],
   "GITHUB_PAGES_URL": "https://officialwork-design.github.io/shift-image-manager/",
   "DRIVE_IMAGE_FOLDER_ID": "1Ob0yiSr0yP_sHa72t9xg8xmGn5YEUYR-",
+  "DRIVE_IMAGE_FOLDER_IDS": "17zZbEhzgr3Fp_yfdox3zWLhO5kSUwvhZ",
   "SHEET_SIFT_DATA": "SIFT_DATA",
   "SHEET_IMAGE_GENERATION": "画像生成",
   "TIMEZONE": "Asia/Tokyo"
