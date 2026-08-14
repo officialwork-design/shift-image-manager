@@ -734,17 +734,49 @@ async function checkImages() {
 }
 
 async function exportImage() {
-  const target = document.getElementById('captureArea');
-  const canvas = await html2canvas(target, {
-    backgroundColor: '#ffffff',
-    scale: 2,
-    useCORS: true
-  });
+  try {
+    setProcessing(true, '画像出力中');
+    const target = document.getElementById('captureArea');
+    await waitForImages(target);
 
-  const a = document.createElement('a');
-  a.href = canvas.toDataURL('image/png');
-  a.download = 'shift-image.png';
-  a.click();
+    const canvas = await html2canvas(target, {
+      backgroundColor: '#ffffff',
+      scale: 2,
+      useCORS: true
+    });
+
+    const a = document.createElement('a');
+    a.href = canvas.toDataURL('image/png');
+    a.download = 'shift-image.png';
+    a.click();
+  } catch (err) {
+    showAlert(err.message, 'danger');
+  } finally {
+    setProcessing(false);
+  }
+}
+
+function waitForImages(target) {
+  const images = Array.from(target.querySelectorAll('img'));
+  return Promise.all(images.map(waitForImage));
+}
+
+function waitForImage(image) {
+  if (image.complete && image.naturalWidth > 0) {
+    return image.decode ? image.decode().catch(() => undefined) : Promise.resolve();
+  }
+
+  return new Promise(resolve => {
+    const done = () => {
+      image.removeEventListener('load', done);
+      image.removeEventListener('error', done);
+      resolve();
+    };
+
+    image.addEventListener('load', done);
+    image.addEventListener('error', done);
+    setTimeout(done, 8000);
+  });
 }
 
 function setProcessing(value, text = '処理中') {

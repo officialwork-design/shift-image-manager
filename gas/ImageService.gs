@@ -1,4 +1,4 @@
-const IMAGE_CACHE_KEY = 'SHIFT_IMAGE_MAP_V3';
+const IMAGE_CACHE_KEY = 'SHIFT_IMAGE_MAP_V4';
 const IMAGE_FOLDER_MAX_DEPTH = 5;
 
 const ImageService = {
@@ -149,14 +149,13 @@ const ImageService = {
 
   addImageFile_(file, imageMap, state) {
     const baseName = Utils.stripExtension(file.getName()).trim();
-    const normalizedName = SiftService.normalizeCastName(baseName) || Utils.normalize(baseName);
-    if (baseName === '準備中' || normalizedName === '準備中') {
+    const keys = this.getImageNameKeys_(baseName);
+    if (keys.indexOf('準備中') !== -1) {
       if (!state.preparingImageId) state.preparingImageId = file.getId();
       return;
     }
 
-    if (baseName && !imageMap[baseName]) imageMap[baseName] = file.getId();
-    if (normalizedName && !imageMap[normalizedName]) imageMap[normalizedName] = file.getId();
+    keys.forEach(key => this.setImageMapKey_(imageMap, key, file.getId()));
   },
 
   getDriveItemId_(item) {
@@ -199,9 +198,66 @@ const ImageService = {
     return text;
   },
 
+  getImageNameKeys_(baseName) {
+    const variants = [
+      baseName,
+      this.normalizeImageKey_(baseName),
+      this.stripImageMetaSuffix_(baseName),
+      this.stripImageMetaSuffix_(this.normalizeImageKey_(baseName))
+    ];
+    const keys = [];
+
+    variants.forEach(value => {
+      const raw = String(value || '').trim();
+      const normalized = SiftService.normalizeCastName(raw) || Utils.normalize(raw);
+      [raw, normalized, this.stripImageMetaSuffix_(normalized), this.findKnownCastPrefix_(normalized)]
+        .filter(Boolean)
+        .forEach(key => {
+          if (keys.indexOf(key) === -1) keys.push(key);
+        });
+    });
+
+    return keys;
+  },
+
+  normalizeImageKey_(value) {
+    return String(value || '')
+      .replace(/[\u00AD\u200B-\u200F\u2028\u2029\u202A-\u202E\u2060-\u2064\uFE00-\uFE0F\uFEFF]/g, '')
+      .replace(/[@＠].*/, '')
+      .replace(/\s+/g, '')
+      .replace(/　+/g, '')
+      .replace(/[_＿\-‐‑‒–—―]+$/g, '')
+      .trim();
+  },
+
+  stripImageMetaSuffix_(value) {
+    return String(value || '')
+      .replace(/[\s　]*[\(（［\[].*?[\)）］\]]$/g, '')
+      .replace(/[\s　]*[-_＿ ]*(copy|コピー)$/i, '')
+      .replace(/[\s　]*[-_＿ ]*[0-9０-９]+$/g, '')
+      .replace(/[_＿\-‐‑‒–—―]+$/g, '')
+      .trim();
+  },
+
+  findKnownCastPrefix_(value) {
+    const text = String(value || '').trim();
+    if (!text) return '';
+    const sortedNames = CAST_MASTER.slice().sort((a, b) => b.length - a.length);
+    for (let i = 0; i < sortedNames.length; i += 1) {
+      const name = sortedNames[i];
+      if (text === name || text.indexOf(name) === 0) return name;
+    }
+    return '';
+  },
+
+  setImageMapKey_(imageMap, key, fileId) {
+    if (key && !imageMap[key]) imageMap[key] = fileId;
+  },
+
   findImageIdForCast_(imageMap, castName) {
     const rawName = String(castName || '').trim();
     const normalizedName = SiftService.normalizeCastName(rawName) || Utils.normalize(rawName);
-    return imageMap[rawName] || imageMap[normalizedName] || '';
+    const normalizedImageKey = this.normalizeImageKey_(rawName);
+    return imageMap[rawName] || imageMap[normalizedName] || imageMap[normalizedImageKey] || '';
   }
 };
