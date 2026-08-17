@@ -83,6 +83,22 @@ body {
   white-space: nowrap;
 }
 
+.manual-image-control {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  min-width: 0;
+}
+
+.manual-image-thumb {
+  width: 34px;
+  height: 42px;
+  border-radius: .4rem;
+  object-fit: cover;
+  background: #111827;
+  flex: 0 0 auto;
+}
+
 .export-card {
   max-width: 980px;
   margin-left: auto;
@@ -120,7 +136,7 @@ body {
     box-shadow: 0 .25rem .75rem rgba(15, 23, 42, .08);
   }
 
-  /* 1カード内は2列グリッド：名前/状態・時間/並び順・画像状態/削除 */
+  /* 1カード内は2列グリッド：名前/状態・時間/並び順・画像状態/差込画像/削除 */
   .mobile-edit-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -132,6 +148,10 @@ body {
     flex-direction: column;
     justify-content: flex-end;
     min-width: 0;
+  }
+
+  .mobile-edit-field--wide {
+    grid-column: 1 / -1;
   }
 
   /* ラベル（小さいグレー文字） */
@@ -153,13 +173,22 @@ body {
     border-radius: .75rem;
   }
 
-  /* 名前select（プルダウン）を見やすく大きめ・横幅100% */
+  /* 名前入力を見やすく大きめ・横幅100% */
   .mobile-edit-card .js-cast-name,
   #addCastName.js-cast-name {
     width: 100%;
     min-height: 48px;
     font-size: 1.1rem;
     font-weight: 700;
+  }
+
+  .manual-image-control {
+    width: 100%;
+  }
+
+  .manual-image-thumb {
+    width: 40px;
+    height: 52px;
   }
 
   /* 画像状態バッジ */

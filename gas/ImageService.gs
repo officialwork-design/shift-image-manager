@@ -1,15 +1,16 @@
-const IMAGE_CACHE_KEY = 'SHIFT_IMAGE_MAP_V4';
+const IMAGE_CACHE_KEY = 'SHIFT_IMAGE_MAP_V5';
 const IMAGE_FOLDER_MAX_DEPTH = 5;
 
 const ImageService = {
   refreshCache() {
     const config = ConfigService.getConfig();
     const data = this.getDriveImagesRaw_();
+    const imageCount = data.imageFiles ? data.imageFiles.length : Object.keys(data.imageMap).length;
     CacheService.getScriptCache().put(IMAGE_CACHE_KEY, JSON.stringify(data), Number(config.IMAGE_CACHE_SECONDS || DEFAULT_CONFIG.IMAGE_CACHE_SECONDS));
-    LogService.operation('画像キャッシュ更新', '', '', '', '', 'imageCount=' + Object.keys(data.imageMap).length + ', folderCount=' + data.folderCount, '成功');
+    LogService.operation('画像キャッシュ更新', '', '', '', '', 'imageCount=' + imageCount + ', folderCount=' + data.folderCount, '成功');
     return {
       success: true,
-      imageCount: Object.keys(data.imageMap).length,
+      imageCount,
       hasPreparingImage: !!data.preparingImageId,
       folderCount: data.folderCount,
       fileCount: data.fileCount,
@@ -51,12 +52,18 @@ const ImageService = {
     const config = ConfigService.getConfig();
     const sheet = SpreadsheetService.getSheet(config.SHEET_IMAGE_GENERATION);
     const rowCount = SHEET_LAYOUT.CAST_END_ROW - SHEET_LAYOUT.CAST_START_ROW + 1;
-    const names = sheet.getRange(SHEET_LAYOUT.CAST_START_ROW, SHEET_LAYOUT.CAST_NAME_COLUMN, rowCount, 1)
+    const width = SHEET_LAYOUT.IMAGE_FILE_ID_COLUMN - SHEET_LAYOUT.CAST_NAME_COLUMN + 1;
+    const rows = sheet.getRange(SHEET_LAYOUT.CAST_START_ROW, SHEET_LAYOUT.CAST_NAME_COLUMN, rowCount, width)
       .getDisplayValues()
-      .map(row => String(row[0] || '').trim())
-      .filter(Boolean);
+      .map(row => ({
+        name: String(row[0] || '').trim(),
+        imageFileId: String(row[4] || '').trim()
+      }))
+      .filter(row => row.name);
     const imageData = this.getDriveImagesCached();
-    const missingNames = names.filter(name => !this.findImageIdForCast_(imageData.imageMap || {}, name));
+    const missingNames = rows
+      .filter(row => !row.imageFileId && !this.findImageIdForCast_(imageData.imageMap || {}, row.name))
+      .map(row => row.name);
 
     if (missingNames.length) {
       const now = Utils.now();
@@ -88,7 +95,7 @@ const ImageService = {
     const config = ConfigService.getConfig();
     const folderIds = this.getImageFolderIds_(config);
     const imageMap = {};
-    const state = { preparingImageId: '' };
+    const state = { preparingImageId: '', imageFiles: [], imageFileIds: {} };
     const folderErrors = [];
     const rootErrors = [];
     const seenFolders = {};
@@ -112,6 +119,7 @@ const ImageService = {
     return {
       imageMap,
       preparingImageId: state.preparingImageId,
+      imageFiles: state.imageFiles,
       folderIds,
       folderErrors,
       folderCount: stats.folderCount,
@@ -148,14 +156,23 @@ const ImageService = {
   },
 
   addImageFile_(file, imageMap, state) {
+    const fileId = file.getId();
     const baseName = Utils.stripExtension(file.getName()).trim();
     const keys = this.getImageNameKeys_(baseName);
     if (keys.indexOf('準備中') !== -1) {
-      if (!state.preparingImageId) state.preparingImageId = file.getId();
+      if (!state.preparingImageId) state.preparingImageId = fileId;
       return;
     }
 
-    keys.forEach(key => this.setImageMapKey_(imageMap, key, file.getId()));
+    if (!state.imageFileIds[fileId]) {
+      state.imageFileIds[fileId] = true;
+      state.imageFiles.push({
+        fileId,
+        name: baseName
+      });
+    }
+
+    keys.forEach(key => this.setImageMapKey_(imageMap, key, fileId));
   },
 
   getDriveItemId_(item) {
@@ -252,6 +269,32 @@ const ImageService = {
 
   setImageMapKey_(imageMap, key, fileId) {
     if (key && !imageMap[key]) imageMap[key] = fileId;
+  },
+
+  getImageOptions(imageData, size) {
+    const imageFiles = imageData && Array.isArray(imageData.imageFiles) ? imageData.imageFiles : [];
+    return imageFiles
+      .map(file => ({
+        fileId: file.fileId,
+        name: file.name,
+        imageUrl: this.getThumbnailUrl(file.fileId, size || 'w120')
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+  },
+
+  isKnownImageFileId(imageData, fileId) {
+    const target = String(fileId || '').trim();
+    if (!target) return true;
+    const imageFiles = imageData && Array.isArray(imageData.imageFiles) ? imageData.imageFiles : [];
+    return imageFiles.some(file => file.fileId === target);
+  },
+
+  getImageNameForFileId(imageData, fileId) {
+    const target = String(fileId || '').trim();
+    if (!target) return '';
+    const imageFiles = imageData && Array.isArray(imageData.imageFiles) ? imageData.imageFiles : [];
+    const found = imageFiles.find(file => file.fileId === target);
+    return found ? found.name : '';
   },
 
   findImageIdForCast_(imageMap, castName) {

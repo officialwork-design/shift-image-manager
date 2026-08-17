@@ -9,7 +9,7 @@ const ShiftService = {
     const imageData = ImageService.getDriveImagesCached();
 
     const rowCount = SHEET_LAYOUT.CAST_END_ROW - SHEET_LAYOUT.CAST_START_ROW + 1;
-    const width = SHEET_LAYOUT.IMAGE_STATUS_COLUMN - SHEET_LAYOUT.SORT_COLUMN + 1;
+    const width = SHEET_LAYOUT.IMAGE_FILE_ID_COLUMN - SHEET_LAYOUT.SORT_COLUMN + 1;
 
     sheet.getRange(SHEET_LAYOUT.DATE_CELL).setValue(date);
     sheet.getRange(SHEET_LAYOUT.STORE_CELL).setValue(selectedStore);
@@ -27,7 +27,8 @@ const ShiftService = {
         item.castName,
         item.workTime || '',
         '出勤',
-        ImageService.getImageStatusForCast(imageData, item.castName)
+        ImageService.getImageStatusForCast(imageData, item.castName),
+        ''
       ]);
 
       sheet.getRange(SHEET_LAYOUT.CAST_START_ROW, SHEET_LAYOUT.SORT_COLUMN, values.length, values[0].length).setValues(values);
@@ -67,17 +68,20 @@ const ShiftService = {
     const missing = [];
 
     editRows.forEach(item => {
-      const matchedImageId = ImageService.findImageIdForCast(imageMap, item.castName);
+      const overrideImageId = item.imageFileId || '';
+      const matchedImageId = overrideImageId || ImageService.findImageIdForCast(imageMap, item.castName);
       const imageId = matchedImageId || preparingImageId || '';
-      const usedPreparing = !matchedImageId && !!preparingImageId;
+      const usedOverride = !!overrideImageId;
+      const usedPreparing = !usedOverride && !matchedImageId && !!preparingImageId;
 
       if (!matchedImageId) missing.push(item.castName);
 
       const viewRow = Object.assign({}, item, {
         name: item.castName,
         isAbsent: item.status === '休み',
+        usedOverride,
         usedPreparing,
-        imageUrl: imageId ? ImageService.getThumbnailUrl(imageId, 'w240') : ''
+        imageUrl: imageId ? ImageService.getThumbnailUrl(imageId, 'w600') : ''
       });
 
       if (viewRow.isAbsent) absentCastList.push(viewRow);
@@ -90,6 +94,7 @@ const ShiftService = {
       activeCastList,
       absentCastList,
       editRows,
+      imageOptions: ImageService.getImageOptions(imageData, 'w120'),
       missingImages: missing,
       updatedAt: Utils.now('HH:mm:ss')
     };
@@ -108,7 +113,7 @@ const ShiftService = {
       .sort((a, b) => a.sortOrder - b.sortOrder);
 
     const rowCount = SHEET_LAYOUT.CAST_END_ROW - SHEET_LAYOUT.CAST_START_ROW + 1;
-    const width = SHEET_LAYOUT.IMAGE_STATUS_COLUMN - SHEET_LAYOUT.SORT_COLUMN + 1;
+    const width = SHEET_LAYOUT.IMAGE_FILE_ID_COLUMN - SHEET_LAYOUT.SORT_COLUMN + 1;
 
     sheet.getRange(SHEET_LAYOUT.CAST_START_ROW, SHEET_LAYOUT.SORT_COLUMN, rowCount, width).clearContent();
 
@@ -118,7 +123,8 @@ const ShiftService = {
         row.castName,
         row.workTime,
         row.status,
-        row.imageStatus
+        row.imageStatus,
+        row.imageFileId
       ]);
 
       sheet.getRange(SHEET_LAYOUT.CAST_START_ROW, SHEET_LAYOUT.SORT_COLUMN, values.length, width).setValues(values);
@@ -163,9 +169,14 @@ const ShiftService = {
     const castName = String(row.castName || row.name || '').trim();
     const workTime = String(row.workTime || '').trim();
     const status = String(row.status || '').trim() === '休み' ? '休み' : '出勤';
+    const imageFileId = String(row.imageFileId || row.overrideImageId || '').trim();
 
     if (workTime && WORK_TIME_OPTIONS.indexOf(workTime) === -1) {
       throw new Error('不正な出勤時間です: ' + workTime);
+    }
+
+    if (!ImageService.isKnownImageFileId(imageData, imageFileId)) {
+      throw new Error('不正な差し込み画像です');
     }
 
     return {
@@ -173,13 +184,14 @@ const ShiftService = {
       castName,
       workTime,
       status,
-      imageStatus: ImageService.getImageStatusForCast(imageData, castName)
+      imageStatus: imageFileId ? '登録済み' : ImageService.getImageStatusForCast(imageData, castName),
+      imageFileId
     };
   },
 
   readEditRows_(sheet, imageData) {
     const rowCount = SHEET_LAYOUT.CAST_END_ROW - SHEET_LAYOUT.CAST_START_ROW + 1;
-    const width = SHEET_LAYOUT.IMAGE_STATUS_COLUMN - SHEET_LAYOUT.SORT_COLUMN + 1;
+    const width = SHEET_LAYOUT.IMAGE_FILE_ID_COLUMN - SHEET_LAYOUT.SORT_COLUMN + 1;
 
     const values = sheet.getRange(SHEET_LAYOUT.CAST_START_ROW, SHEET_LAYOUT.SORT_COLUMN, rowCount, width).getDisplayValues();
 
@@ -191,6 +203,7 @@ const ShiftService = {
         if (!castName) return null;
 
         const status = String(row[3] || '').trim() === '休み' ? '休み' : '出勤';
+        const imageFileId = String(row[5] || '').trim();
 
         return {
           row: SHEET_LAYOUT.CAST_START_ROW + index,
@@ -199,7 +212,10 @@ const ShiftService = {
           name: castName,
           workTime: String(row[2] || '').trim(),
           status,
-          imageStatus: ImageService.getImageStatusForCast(imageData, castName)
+          imageStatus: imageFileId ? '登録済み' : ImageService.getImageStatusForCast(imageData, castName),
+          imageFileId,
+          imageName: ImageService.getImageNameForFileId(imageData, imageFileId),
+          imageSource: imageFileId ? 'manual' : 'auto'
         };
       })
       .filter(Boolean)

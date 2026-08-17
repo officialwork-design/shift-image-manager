@@ -79,23 +79,22 @@ const CAST_OPTIONS = {
   "恋富子": "@kotomiko_oshiose"
 };
 
-// 名前select用のoption群を生成（value=名前・表示=「名前 @id」・先頭に未選択）
-function buildCastOptions(selected) {
-  const sel = String(selected || '');
-  let html = '<option value="">選択してください</option>';
-
-  // 既存データで一覧に無い名前も選択状態を保持できるように追加
-  if (sel && !Object.prototype.hasOwnProperty.call(CAST_OPTIONS, sel)) {
-    html += `<option value="${escapeHtml(sel)}" selected>${escapeHtml(sel)}</option>`;
-  }
-
-  html += Object.keys(CAST_OPTIONS).map(name => {
+function buildCastDatalistOptions() {
+  return Object.keys(CAST_OPTIONS).map(name => {
     const id = CAST_OPTIONS[name];
-    const selectedAttr = name === sel ? ' selected' : '';
-    return `<option value="${escapeHtml(name)}"${selectedAttr}>${escapeHtml(name)} ${escapeHtml(id)}</option>`;
+    return `<option value="${escapeHtml(name)}" label="${escapeHtml(`${name} ${id}`)}"></option>`;
   }).join('');
+}
 
-  return html;
+function renderCastNameInput(value, sizeClass = 'form-control-sm') {
+  return `
+    <input
+      class="form-control ${sizeClass} js-cast-name"
+      list="castNameOptions"
+      autocomplete="off"
+      value="${escapeHtml(value || '')}"
+    >
+  `;
 }
 
 window.addEventListener('DOMContentLoaded', boot);
@@ -110,8 +109,8 @@ async function boot() {
 }
 
 function renderAddCastOptions() {
-  const select = document.getElementById('addCastName');
-  if (select) select.innerHTML = buildCastOptions('');
+  const datalist = document.getElementById('castNameOptions');
+  if (datalist) datalist.innerHTML = buildCastDatalistOptions();
 }
 
 function renderStoreOptions() {
@@ -147,8 +146,22 @@ function bindEvents() {
     if (event.target.classList.contains('js-sort-order')) {
       handleSortOrderChange(event.target);
     }
+    if (event.target.classList.contains('js-image-file-id')) {
+      const rows = collectEditRows();
+      state.current = state.current || {};
+      state.current.editRows = rows;
+      renderEditTable(rows);
+      renderEditableSiftPreview();
+      return;
+    }
     // 名前・時間・状態・並び順のいずれの変更でも編集SIFTプレビューを更新（保存前でも反映）
     renderEditableSiftPreview();
+  });
+
+  document.getElementById('editTableArea').addEventListener('input', event => {
+    if (event.target.classList.contains('js-cast-name')) {
+      renderEditableSiftPreview();
+    }
   });
 }
 
@@ -366,7 +379,7 @@ function compareWorkTime(a, b) {
   return a < b ? -1 : 1;
 }
 
-// 元データから初期化：SIFT_DATA原本を再解析して編集テーブル・画像生成シートH:Lを戻す
+// 元データから初期化：SIFT_DATA原本を再解析して編集テーブル・画像生成シートH:Mを戻す
 async function resetFromSource() {
   const store = document.getElementById('storePicker').value;
   const date = document.getElementById('datePicker').value;
@@ -382,7 +395,7 @@ async function resetFromSource() {
 
   try {
     setProcessing(true, '元データから初期化中');
-    // changeDateAndStore がSIFT_DATA原本を再解析し、画像生成シートH:Lを元データで上書きする
+    // changeDateAndStore がSIFT_DATA原本を再解析し、画像生成シートH:Mを元データで上書きする
     await Api.request('changeDateAndStore', { store, date });
     const data = await Api.request('getImageList', { store, date });
     state.current = data;
@@ -433,6 +446,7 @@ function renderDesktopEditTable(rows) {
             <th style="width:110px;">時間</th>
             <th style="width:110px;">状態</th>
             <th style="width:90px;">画像</th>
+            <th style="width:200px;">差込画像</th>
             <th style="width:64px;"></th>
           </tr>
         </thead>
@@ -446,14 +460,17 @@ function renderDesktopEditTable(rows) {
 
 function renderEditRow(row) {
   return `
-    <tr data-edit-row data-row-id="${Number(row.row || 0)}" data-image-status="${escapeHtml(String(row.imageStatus || '未登録'))}">
+    <tr
+      data-edit-row
+      data-row-id="${Number(row.row || 0)}"
+      data-image-status="${escapeHtml(String(row.imageStatus || '未登録'))}"
+      data-image-file-id="${escapeHtml(String(row.imageFileId || ''))}"
+    >
       <td>
         <input class="form-control form-control-sm js-sort-order" type="number" min="1" value="${Number(row.sortOrder || 1)}">
       </td>
       <td>
-        <select class="form-select form-select-sm js-cast-name">
-          ${buildCastOptions(row.castName || row.name || '')}
-        </select>
+        ${renderCastNameInput(row.castName || row.name || '')}
       </td>
       <td>
         <select class="form-select form-select-sm js-work-time">
@@ -474,7 +491,10 @@ function renderEditRow(row) {
         </select>
       </td>
       <td>
-        ${renderImageStatusBadge(row.imageStatus)}
+        ${renderImageStatusBadge(row.imageStatus, row.imageSource)}
+      </td>
+      <td>
+        ${renderImageOverrideControl(row, 'form-select-sm')}
       </td>
       <td>
         <button type="button" class="btn btn-sm btn-outline-danger rounded-pill" onclick="removeEditRow(this)">削除</button>
@@ -505,13 +525,17 @@ function renderMobileEditCard(row) {
   `).join('');
 
   return `
-    <div class="mobile-edit-card" data-edit-row data-row-id="${Number(row.row || 0)}" data-image-status="${escapeHtml(String(row.imageStatus || '未登録'))}">
+    <div
+      class="mobile-edit-card"
+      data-edit-row
+      data-row-id="${Number(row.row || 0)}"
+      data-image-status="${escapeHtml(String(row.imageStatus || '未登録'))}"
+      data-image-file-id="${escapeHtml(String(row.imageFileId || ''))}"
+    >
       <div class="mobile-edit-grid">
         <div class="mobile-edit-field mobile-edit-field--name">
           <label>名前</label>
-          <select class="form-select js-cast-name">
-            ${buildCastOptions(row.castName || row.name || '')}
-          </select>
+          ${renderCastNameInput(row.castName || row.name || '', '')}
         </div>
         <div class="mobile-edit-field">
           <label>状態</label>
@@ -527,7 +551,11 @@ function renderMobileEditCard(row) {
         </div>
         <div class="mobile-edit-field">
           <label>画像状態</label>
-          ${renderImageStatusBadge(row.imageStatus)}
+          ${renderImageStatusBadge(row.imageStatus, row.imageSource)}
+        </div>
+        <div class="mobile-edit-field mobile-edit-field--wide">
+          <label>差込画像</label>
+          ${renderImageOverrideControl(row, '')}
         </div>
         <div class="mobile-edit-field">
           <label>削除</label>
@@ -538,11 +566,54 @@ function renderMobileEditCard(row) {
   `;
 }
 
-function renderImageStatusBadge(status) {
+function renderImageStatusBadge(status, imageSource) {
+  if (imageSource === 'manual') return '<span class="badge text-bg-info">差込</span>';
   const value = String(status || '未登録');
   if (value === '登録済み') return '<span class="badge text-bg-success">登録済み</span>';
   if (value === '準備中') return '<span class="badge text-bg-warning">準備中</span>';
   return '<span class="badge text-bg-secondary">未登録</span>';
+}
+
+function renderImageOverrideControl(row, sizeClass) {
+  const selectedId = String(row.imageFileId || '');
+  const selectedOption = findImageOption(selectedId);
+  const thumb = selectedOption ? `<img class="manual-image-thumb" src="${escapeHtml(selectedOption.imageUrl)}" alt="">` : '';
+
+  return `
+    <div class="manual-image-control">
+      ${thumb}
+      <select class="form-select ${sizeClass} js-image-file-id">
+        ${buildImageOptionTags(selectedId)}
+      </select>
+    </div>
+  `;
+}
+
+function buildImageOptionTags(selectedId) {
+  const imageOptions = getImageOptions();
+  let html = `<option value="" ${selectedId ? '' : 'selected'}>自動</option>`;
+
+  if (selectedId && !imageOptions.some(option => option.fileId === selectedId)) {
+    html += `<option value="${escapeHtml(selectedId)}" selected>選択中の画像</option>`;
+  }
+
+  html += imageOptions.map(option => `
+    <option value="${escapeHtml(option.fileId)}" ${option.fileId === selectedId ? 'selected' : ''}>
+      ${escapeHtml(option.name)}
+    </option>
+  `).join('');
+
+  return html;
+}
+
+function getImageOptions() {
+  return (state.current && Array.isArray(state.current.imageOptions)) ? state.current.imageOptions : [];
+}
+
+function findImageOption(fileId) {
+  const target = String(fileId || '');
+  if (!target) return null;
+  return getImageOptions().find(option => option.fileId === target) || null;
 }
 
 function addCastRow() {
@@ -562,7 +633,8 @@ function addCastRow() {
     castName,
     workTime: workTimeInput.value,
     status: statusInput.value,
-    imageStatus: '未登録'
+    imageStatus: '未登録',
+    imageFileId: ''
   });
 
   state.current = state.current || {};
@@ -585,12 +657,15 @@ function collectEditRows() {
   document.querySelectorAll('#editTableArea [data-edit-row]').forEach((el, index) => {
     const nameEl = el.querySelector('.js-cast-name');
     if (!nameEl) return;
+    const imageFileId = getImageFileIdFromRow(el);
     rows.push({
       sortOrder: Number(el.querySelector('.js-sort-order').value) || index + 1,
       castName: nameEl.value.trim(),
       workTime: el.querySelector('.js-work-time').value,
       status: el.querySelector('.js-status').value,
-      imageStatus: el.dataset.imageStatus || '未登録'
+      imageStatus: imageFileId ? '登録済み' : (el.dataset.imageStatus || '未登録'),
+      imageFileId,
+      imageSource: imageFileId ? 'manual' : 'auto'
     });
   });
 
@@ -604,6 +679,7 @@ function readEditRowsInDomOrder() {
   const rows = [];
   document.querySelectorAll('#editTableArea [data-edit-row]').forEach(el => {
     const nameEl = el.querySelector('.js-cast-name');
+    const imageFileId = getImageFileIdFromRow(el);
     rows.push({
       el,
       row: Number(el.dataset.rowId || 0),
@@ -611,10 +687,17 @@ function readEditRowsInDomOrder() {
       castName: nameEl ? nameEl.value.trim() : '',
       workTime: el.querySelector('.js-work-time').value,
       status: el.querySelector('.js-status').value,
-      imageStatus: el.dataset.imageStatus || '未登録'
+      imageStatus: imageFileId ? '登録済み' : (el.dataset.imageStatus || '未登録'),
+      imageFileId,
+      imageSource: imageFileId ? 'manual' : 'auto'
     });
   });
   return rows;
+}
+
+function getImageFileIdFromRow(el) {
+  const select = el.querySelector('.js-image-file-id');
+  return select ? select.value.trim() : String(el.dataset.imageFileId || '').trim();
 }
 
 // 並び順inputの変更で対象を指定位置へ移動し、全体を1..nに正規化して再描画
@@ -641,7 +724,9 @@ function handleSortOrderChange(target) {
     castName: item.castName,
     workTime: item.workTime,
     status: item.status,
-    imageStatus: item.imageStatus
+    imageStatus: item.imageStatus,
+    imageFileId: item.imageFileId,
+    imageSource: item.imageSource
   }));
 
   state.current = state.current || {};
@@ -680,6 +765,7 @@ function renderPhotos(list) {
   grid.innerHTML = list.map(c => `
     <article class="photo-card shadow-sm">
       <img src="${escapeHtml(c.imageUrl)}" alt="${escapeHtml(c.name)}" loading="lazy">
+      ${c.usedOverride ? '<span class="badge text-bg-info">差込</span>' : ''}
       ${c.usedPreparing ? '<span class="badge text-bg-warning">準備中</span>' : ''}
     </article>
   `).join('');

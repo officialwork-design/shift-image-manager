@@ -74,6 +74,7 @@ GAS_WEB_APP_URL
 | getSiftPreview | 選択店舗・日付の投稿文取得 | 必須 |
 | changeDateAndStore | 店舗・日付切替とシフト生成 | 必須 |
 | getImageList | 画像一覧・出勤/休み一覧取得 | 必須 |
+| updateShiftRows | 編集テーブルの一括保存 | 必須 |
 | setCastAbsent | 休み/出勤切替 | 必須 |
 | refreshImageCache | Drive画像キャッシュ更新 | 任意 |
 | checkImages | 画像未登録チェック | 任意 |
@@ -209,7 +210,24 @@ JSONPレスポンス軽量化のため、画像はbase64 dataURLではなくGoog
   "selectedDate": "7月1日(水)",
   "activeCastList": [],
   "absentCastList": [],
-  "editRows": [],
+  "editRows": [
+    {
+      "sortOrder": 1,
+      "castName": "ひめる",
+      "workTime": "18:00",
+      "status": "出勤",
+      "imageStatus": "登録済み",
+      "imageFileId": "",
+      "imageSource": "auto"
+    }
+  ],
+  "imageOptions": [
+    {
+      "fileId": "drive-file-id",
+      "name": "ひめる",
+      "imageUrl": "https://drive.google.com/thumbnail?id=drive-file-id&sz=w120"
+    }
+  ],
   "missingImages": [],
   "updatedAt": "12:00:00"
 }
@@ -221,7 +239,41 @@ JSONPレスポンス軽量化のため、画像はbase64 dataURLではなくGoog
 https://drive.google.com/thumbnail?id={fileId}&sz=w600
 ```
 
-## 11. setCastAbsent
+## 11. updateShiftRows
+
+### 用途
+
+編集テーブルの行データを画像生成シートへ保存します。
+
+`imageFileId` を指定すると、キャスト名による自動照合より優先して、そのDrive画像を出力画像に差し込みます。
+
+### payload
+
+```json
+{
+  "rows": [
+    {
+      "sortOrder": 1,
+      "castName": "手入力キャスト",
+      "workTime": "18:00",
+      "status": "出勤",
+      "imageFileId": "drive-file-id"
+    }
+  ]
+}
+```
+
+### data
+
+```json
+{
+  "success": true,
+  "count": 1,
+  "editRows": []
+}
+```
+
+## 12. setCastAbsent
 
 ### 用途
 
@@ -244,7 +296,7 @@ https://drive.google.com/thumbnail?id={fileId}&sz=w600
 }
 ```
 
-## 12. refreshImageCache
+## 13. refreshImageCache
 
 ### 用途
 
@@ -262,11 +314,15 @@ Google Driveの画像ファイル一覧を再取得し、キャッシュしま�
 {
   "success": true,
   "imageCount": 30,
-  "hasPreparingImage": true
+  "hasPreparingImage": true,
+  "folderCount": 2,
+  "fileCount": 31,
+  "folderIds": ["1Ob0yiSr0yP_sHa72t9xg8xmGn5YEUYR-"],
+  "folderErrors": []
 }
 ```
 
-## 13. checkImages
+## 14. checkImages
 
 ### 用途
 
@@ -287,13 +343,13 @@ Google Driveの画像ファイル一覧を再取得し、キャッシュしま�
 }
 ```
 
-## 14. エラー処理
+## 15. エラー処理
 
 GAS側で例外が発生した場合、エラー内容を `エラーログ` シートへ保存します。
 
 フロント側では toast または alert で表示します。
 
-## 15. 注意事項
+## 16. 注意事項
 
 - GitHub Pages側に秘密情報は置かない。
 - GAS_WEB_APP_URLは公開前提で扱う。
