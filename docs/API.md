@@ -29,13 +29,16 @@ GAS_WEB_APP_URL
 {GAS_WEB_APP_URL}?action=getDateList&payload={...}&callback=callbackName
 ```
 
-### Opaque POST
+### iframe postMessage POST
 
-画像アップロードなどURL長制限に当たる処理は、GitHub Pages から `fetch` の `mode: "no-cors"` でPOSTします。Apps Script WebApp のCORS制約を避けるため、フロントはPOSTレスポンス本文を直接読みません。
+画像アップロードなどURL長制限に当たる処理は、GitHub Pages から hidden iframe のフォームPOSTで送信します。Apps Script WebApp のCORS制約を避けるため、GASはHTMLレスポンス内の `postMessage` で親画面へ処理結果を返します。
 
 ```text
 action=uploadImage
 payload={...}
+responseMode=postMessage
+messageId=...
+parentOrigin=https://officialwork-design.github.io
 ```
 
 ### パラメータ
@@ -313,7 +316,7 @@ https://drive.google.com/thumbnail?id={fileId}&sz=w600
 
 GitHub Pages から画像を追加し、選択したDrive画像フォルダへ保存します。
 
-画像アップロードはURL長制限を避けるため、JSONPではなく `no-cors` POSTで送信します。保存ファイル名は `name + 元画像の拡張子` です。
+画像アップロードはURL長制限を避けるため、JSONPではなく iframe postMessage POSTで送信します。保存ファイル名は `name + 元画像の拡張子` です。
 
 GitHub Pages から通常の `fetch POST` はCORSで失敗しやすいため使用しません。送信前にJSONPで `uploadImage` action の存在だけ確認し、`Unknown action: uploadImage` の場合は Apps Script の再デプロイが必要です。
 
@@ -352,7 +355,7 @@ GitHub Pages から通常の `fetch POST` はCORSで失敗しやすいため使�
 }
 ```
 
-`no-cors` POSTのため、フロント側はこのレスポンスを直接読みません。送信後に `verifyImageUpload` でDrive反映を確認し、`refreshImageCache` と `getImageList` をJSONPで再取得します。
+POSTはGASのHTMLレスポンスから `postMessage` で成否を受け取ります。送信後に `verifyImageUpload` でDrive反映も確認し、`refreshImageCache` と `getImageList` をJSONPで再取得します。
 
 保存記録は `IMAGE_UPLOAD_LOG_SPREADSHEET_ID` のSpreadsheetに追記します。記録のみ失敗した場合はアップロードを成功扱いにし、`エラーログ` に記録します。
 

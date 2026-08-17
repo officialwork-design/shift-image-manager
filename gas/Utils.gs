@@ -32,10 +32,37 @@ const Utils = {
     return ContentService.createTextOutput(body).setMimeType(mimeType);
   },
 
+  outputPostMessage(obj, messageId, parentOrigin) {
+    const targetOrigin = this.getPostMessageOrigin(parentOrigin);
+    const message = {
+      source: 'shift-image-manager',
+      messageId: String(messageId || ''),
+      response: obj
+    };
+    const html = [
+      '<!doctype html><html><head><meta charset="utf-8"></head><body>',
+      '<script>',
+      'window.parent.postMessage(',
+      JSON.stringify(message).replace(/</g, '\\u003c'),
+      ',',
+      JSON.stringify(targetOrigin),
+      ');',
+      '</script>',
+      '</body></html>'
+    ].join('');
+    return HtmlService.createHtmlOutput(html)
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  },
+
   getJsonpCallback(callback) {
     const name = String(callback || '').trim();
     if (!name) return '';
     return /^[A-Za-z_$][0-9A-Za-z_$]*(\.[A-Za-z_$][0-9A-Za-z_$]*)*$/.test(name) ? name : '';
+  },
+
+  getPostMessageOrigin(origin) {
+    const value = String(origin || '').trim();
+    return /^https?:\/\/[A-Za-z0-9.-]+(?::\d+)?$/.test(value) ? value : '*';
   },
 
   now(pattern) {

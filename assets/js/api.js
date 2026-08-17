@@ -34,7 +34,7 @@ const Api = (() => {
     if (!config.GAS_WEB_APP_URL) {
       return Promise.reject(new Error('config.js の GAS_WEB_APP_URL が未設定です'));
     }
-    return opaquePostRequest(config.GAS_WEB_APP_URL, action, payload, timeoutMs);
+    return iframePostMessageRequest(config.GAS_WEB_APP_URL, action, payload, timeoutMs);
   }
 
   function jsonpRequest(url, action, payload) {
@@ -72,23 +72,63 @@ const Api = (() => {
     });
   }
 
-  async function opaquePostRequest(url, action, payload, timeoutMs) {
+  async function iframePostMessageRequest(url, action, payload, timeoutMs) {
     const probe = await probeAction(url, action);
     if (!probe.available) throw new Error(probe.message);
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      await fetch(url, {
-        method: 'POST',
-        mode: 'no-cors',
-        body: JSON.stringify({ action, payload }),
-        signal: controller.signal
-      });
-      return { success: true, submitted: true };
-    } finally {
-      clearTimeout(timer);
-    }
+    return new Promise((resolve, reject) => {
+      const messageId = `shiftUploadMessage_${Date.now()}_${seq++}`;
+      const frameName = `shiftUploadFrame_${Date.now()}_${seq++}`;
+      const iframe = document.createElement('iframe');
+      const form = document.createElement('form');
+      let settled = false;
+      const timer = setTimeout(() => cleanup(new Error('API timeout')), timeoutMs);
+
+      iframe.name = frameName;
+      iframe.style.display = 'none';
+
+      form.method = 'POST';
+      form.action = url;
+      form.target = frameName;
+      form.enctype = 'application/x-www-form-urlencoded';
+      form.style.display = 'none';
+
+      appendField(form, 'action', action);
+      appendField(form, 'payload', JSON.stringify(payload));
+      appendField(form, 'responseMode', 'postMessage');
+      appendField(form, 'messageId', messageId);
+      appendField(form, 'parentOrigin', window.location.origin);
+
+      function onMessage(event) {
+        const message = event.data || {};
+        if (message.source !== 'shift-image-manager' || message.messageId !== messageId) return;
+        const response = message.response || {};
+        if (!response.success) cleanup(new Error(response.message || 'API error'));
+        else cleanup(null, response.data);
+      }
+
+      function cleanup(err, data) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        window.removeEventListener('message', onMessage);
+        if (form.parentNode) form.parentNode.removeChild(form);
+        if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+        if (err) reject(err); else resolve(data);
+      }
+
+      window.addEventListener('message', onMessage);
+      document.body.appendChild(iframe);
+      document.body.appendChild(form);
+      form.submit();
+    });
+  }
+
+  function appendField(form, name, value) {
+    const field = document.createElement('textarea');
+    field.name = name;
+    field.value = value;
+    form.appendChild(field);
   }
 
   async function probeAction(url, action) {

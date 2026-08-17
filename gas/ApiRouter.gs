@@ -10,15 +10,16 @@ const ApiRouter = {
   handle(e, isJsonp) {
     const started = new Date();
     const callback = e && e.parameter ? e.parameter.callback : '';
+    const responseOptions = this.getResponseOptions_(e);
     let request = { action: '', payload: {} };
 
     try {
       request = this.parseRequest(e, isJsonp);
       const data = this.route(request.action, request.payload || {});
-      return Utils.output(Utils.successResponse(data, new Date() - started), callback);
+      return this.output_(Utils.successResponse(data, new Date() - started), callback, responseOptions);
     } catch (err) {
       LogService.error(request.action || 'ApiRouter.handle', err, this.getErrorPayload_(e, request));
-      return Utils.output(Utils.errorResponse(err, request.action, new Date() - started), callback);
+      return this.output_(Utils.errorResponse(err, request.action, new Date() - started), callback, responseOptions);
     }
   },
 
@@ -69,6 +70,24 @@ const ApiRouter = {
       default:
         throw new Error('Unknown action: ' + action);
     }
+  },
+
+  output_(response, callback, responseOptions) {
+    if (responseOptions && responseOptions.responseMode === 'postMessage') {
+      return Utils.outputPostMessage(response, responseOptions.messageId, responseOptions.parentOrigin);
+    }
+    return Utils.output(response, callback);
+  },
+
+  getResponseOptions_(e) {
+    const params = e && e.parameter ? e.parameter : {};
+    const body = e && e.postData && e.postData.contents ? e.postData.contents : '';
+    const form = this.parseFormBody_(body);
+    return {
+      responseMode: String(params.responseMode || form.responseMode || '').trim(),
+      messageId: String(params.messageId || form.messageId || '').trim(),
+      parentOrigin: String(params.parentOrigin || form.parentOrigin || '').trim()
+    };
   },
 
   parseFormBody_(body) {
