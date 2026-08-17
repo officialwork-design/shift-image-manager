@@ -34,7 +34,7 @@ const Api = (() => {
     if (!config.GAS_WEB_APP_URL) {
       return Promise.reject(new Error('config.js の GAS_WEB_APP_URL が未設定です'));
     }
-    return formPostRequest(config.GAS_WEB_APP_URL, action, payload, timeoutMs);
+    return opaquePostRequest(config.GAS_WEB_APP_URL, action, payload, timeoutMs);
   }
 
   function jsonpRequest(url, action, payload) {
@@ -72,56 +72,23 @@ const Api = (() => {
     });
   }
 
-  async function formPostRequest(url, action, payload, timeoutMs) {
+  async function opaquePostRequest(url, action, payload, timeoutMs) {
     const probe = await probeAction(url, action);
     if (!probe.available) throw new Error(probe.message);
 
-    return new Promise((resolve, reject) => {
-      const frameName = `shiftUploadFrame_${Date.now()}_${seq++}`;
-      const iframe = document.createElement('iframe');
-      const form = document.createElement('form');
-      let submitted = false;
-      let settled = false;
-      const timer = setTimeout(() => cleanup(new Error('API timeout')), timeoutMs);
-
-      iframe.name = frameName;
-      iframe.style.display = 'none';
-
-      form.method = 'POST';
-      form.action = url;
-      form.target = frameName;
-      form.enctype = 'application/x-www-form-urlencoded';
-      form.style.display = 'none';
-
-      appendField(form, 'action', action);
-      appendField(form, 'payload', JSON.stringify(payload));
-
-      iframe.onload = () => {
-        if (!submitted || settled) return;
-        setTimeout(() => cleanup(null, { success: true, submitted: true }), 500);
-      };
-
-      function cleanup(err, data) {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        if (form.parentNode) form.parentNode.removeChild(form);
-        if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
-        if (err) reject(err); else resolve(data);
-      }
-
-      document.body.appendChild(iframe);
-      document.body.appendChild(form);
-      submitted = true;
-      form.submit();
-    });
-  }
-
-  function appendField(form, name, value) {
-    const field = document.createElement('textarea');
-    field.name = name;
-    field.value = value;
-    form.appendChild(field);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      await fetch(url, {
+        method: 'POST',
+        mode: 'no-cors',
+        body: JSON.stringify({ action, payload }),
+        signal: controller.signal
+      });
+      return { success: true, submitted: true };
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async function probeAction(url, action) {

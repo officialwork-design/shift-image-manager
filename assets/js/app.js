@@ -889,7 +889,7 @@ async function uploadImage() {
     setProcessing(true, '画像反映確認中');
     const verified = await waitForUploadedImage(uploadPayload, existingFileIds);
     if (!verified || !verified.found) {
-      throw new Error('画像を送信しましたが、Driveフォルダで確認できませんでした。Apps Scriptの実行履歴とエラーログを確認してください。');
+      throw new Error('Driveフォルダに画像が追加されませんでした。Apps Scriptのデプロイ版、実行履歴、エラーログを確認してください。');
     }
 
     fileInput.value = '';
@@ -903,13 +903,22 @@ async function uploadImage() {
     const date = document.getElementById('datePicker').value;
     if (store && date) await refreshCurrentShift();
   } catch (err) {
-    const message = err.name === 'AbortError'
-      ? '画像追加がタイムアウトしました。画像サイズを小さくして再試行してください。'
-      : err.message;
+    const message = getUploadErrorMessage(err);
     showAlert(message, 'danger');
   } finally {
     setProcessing(false);
   }
+}
+
+function getUploadErrorMessage(err) {
+  const message = err && err.message ? err.message : String(err || '');
+  if (err && err.name === 'AbortError') {
+    return '画像追加がタイムアウトしました。画像サイズを小さくして再試行してください。';
+  }
+  if (/Unknown action: (uploadImage|verifyImageUpload)/.test(message)) {
+    return 'Apps ScriptのWebアプリが古いです。clasp push後に新しいバージョンをデプロイしてください。';
+  }
+  return message;
 }
 
 function readFileAsDataUrl(file) {
