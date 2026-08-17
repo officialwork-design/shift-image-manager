@@ -765,7 +765,6 @@ function renderPhotos(list) {
   grid.innerHTML = list.map(c => `
     <article class="photo-card shadow-sm">
       <img src="${escapeHtml(c.imageUrl)}" alt="${escapeHtml(c.name)}" loading="lazy">
-      ${c.usedOverride ? '<span class="badge text-bg-info">差込</span>' : ''}
       ${c.usedPreparing ? '<span class="badge text-bg-warning">準備中</span>' : ''}
     </article>
   `).join('');
