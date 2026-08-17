@@ -29,6 +29,15 @@ GAS_WEB_APP_URL
 {GAS_WEB_APP_URL}?action=getDateList&payload={...}&callback=callbackName
 ```
 
+### Form POST
+
+画像アップロードなどURL長制限に当たる処理は、GitHub Pages から隠しフォームでPOSTします。Apps Script WebApp のCORS制約を避けるため、フロントはPOSTレスポンス本文を直接読みません。
+
+```text
+action=uploadImage
+payload={...}
+```
+
 ### パラメータ
 
 | パラメータ | 必須 | 内容 |
@@ -303,7 +312,9 @@ https://drive.google.com/thumbnail?id={fileId}&sz=w600
 
 GitHub Pages から画像を追加し、選択したDrive画像フォルダへ保存します。
 
-画像アップロードはURL長制限を避けるため、JSONPではなくPOSTで送信します。保存ファイル名は `name + 元画像の拡張子` です。
+画像アップロードはURL長制限を避けるため、JSONPではなくフォームPOSTで送信します。保存ファイル名は `name + 元画像の拡張子` です。
+
+GitHub Pages から `fetch POST` はCORSで失敗しやすいため使用しません。送信前にJSONPで `uploadImage` action の存在だけ確認し、`Unknown action: uploadImage` の場合は Apps Script の再デプロイが必要です。
 
 ### payload
 
@@ -339,6 +350,8 @@ GitHub Pages から画像を追加し、選択したDrive画像フォルダへ�
   "uploadLogSheetName": "画像保存記録"
 }
 ```
+
+フォームPOSTのため、フロント側はこのレスポンスを直接読みません。送信後に `refreshImageCache` と `getImageList` をJSONPで再取得します。
 
 保存記録は `IMAGE_UPLOAD_LOG_SPREADSHEET_ID` のSpreadsheetに追記します。記録のみ失敗した場合はアップロードを成功扱いにし、`エラーログ` に記録します。
 

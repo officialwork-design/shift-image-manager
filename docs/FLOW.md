@@ -206,7 +206,9 @@ CacheServiceへ保存
 ↓
 画像ファイルを選択
 ↓
-uploadImage をPOSTで実行
+JSONPで uploadImage action の存在を確認
+↓
+uploadImage をフォームPOSTで実行
 ↓
 GASで name + 元拡張子 のファイル名を作成
 ↓
@@ -221,7 +223,8 @@ getImageList を再取得して編集テーブル・画像プレビューを再�
 
 - 保存先は大阪フォルダ `17zZbEhzgr3Fp_yfdox3zWLhO5kSUwvhZ` または東京フォルダ `1Ob0yiSr0yP_sHa72t9xg8xmGn5YEUYR-`。
 - 保存記録は `IMAGE_UPLOAD_LOG_SPREADSHEET_ID` の `SHEET_IMAGE_UPLOAD_LOG` タブへ追記する。
-- アップロードはURL長制限を避けるため、JSONPではなくPOSTで送信する。
+- アップロードはURL長制限とCORS制約を避けるため、隠しフォームPOSTで送信する。
+- `Unknown action: uploadImage` が返る場合は Apps Script の新バージョン再デプロイが必要。
 - 画像追加後は自動照合用のファイル名として、入力名から拡張子を除いた名前を使用する。
 
 ## 12. エラー処理フロー

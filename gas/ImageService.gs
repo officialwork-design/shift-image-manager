@@ -52,6 +52,10 @@ const ImageService = {
   },
 
   uploadImage(payload) {
+    if (payload && payload.__probe) {
+      return { available: true, action: 'uploadImage' };
+    }
+
     const target = this.getUploadTarget_(payload.folderKey);
     const castName = this.sanitizeUploadName_(payload.name);
     if (!castName) throw new Error('画像名を入力してください');

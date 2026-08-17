@@ -874,7 +874,7 @@ async function uploadImage() {
   try {
     setProcessing(true, '画像追加中');
     const dataUrl = await readFileAsDataUrl(file);
-    const result = await Api.post('uploadImage', {
+    await Api.post('uploadImage', {
       name,
       folderKey: folderInput.value,
       fileName: file.name,
@@ -884,7 +884,11 @@ async function uploadImage() {
 
     fileInput.value = '';
     document.getElementById('uploadPreview').classList.add('d-none');
-    showAlert(`${result.folderLabel}フォルダに ${result.fileName} を追加しました。`, 'success');
+    showAlert(`${getSelectedText(folderInput)}フォルダへ画像を送信しました。`, 'success');
+
+    setProcessing(true, '画像一覧更新中');
+    await wait(1200);
+    await Api.request('refreshImageCache');
 
     const store = document.getElementById('storePicker').value;
     const date = document.getElementById('datePicker').value;
@@ -906,6 +910,15 @@ function readFileAsDataUrl(file) {
     reader.onerror = () => reject(new Error('画像ファイルを読み取れません'));
     reader.readAsDataURL(file);
   });
+}
+
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function getSelectedText(select) {
+  if (!select || !select.options || select.selectedIndex < 0) return '';
+  return select.options[select.selectedIndex].textContent.trim();
 }
 
 function stripExtension(fileName) {

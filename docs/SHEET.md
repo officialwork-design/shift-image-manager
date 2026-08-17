@@ -54,6 +54,8 @@ GASやフロントで使用するID・URL・シート名を管理します。
 | SCRIPT_ID | 1m0G9Y3ATR885RDD1LBEjp5Zsc5Ts4qv_hq1q9kFw3Xe0WmKy5DQVnATS | GAS Script ID |
 | DRIVE_IMAGE_FOLDER_ID | 1Ob0yiSr0yP_sHa72t9xg8xmGn5YEUYR- | 画像取得フォルダ |
 | DRIVE_IMAGE_FOLDER_IDS | 17zZbEhzgr3Fp_yfdox3zWLhO5kSUwvhZ | 追加画像取得フォルダ。カンマまたは改行区切りで複数指定可 |
+| IMAGE_UPLOAD_LOG_SPREADSHEET_ID | 1QivIBngvbskj7oNbToliE9_aq3Gke74VyrL37zU7qac | 画像追加の保存記録Spreadsheet ID |
+| SHEET_IMAGE_UPLOAD_LOG | 画像保存記録 | 画像追加保存記録シート名 |
 | DRIVE_OUTPUT_FOLDER_ID | 空欄 | 現時点では未使用 |
 | SHEET_IMAGE_GENERATION | 画像生成 | 画像生成シート名 |
 | SHEET_SIFT_DATA | SIFT_DATA | SIFT_DATAシート名 |
