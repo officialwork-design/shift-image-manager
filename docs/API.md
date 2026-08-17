@@ -76,6 +76,7 @@ GAS_WEB_APP_URL
 | getImageList | 画像一覧・出勤/休み一覧取得 | 必須 |
 | updateShiftRows | 編集テーブルの一括保存 | 必須 |
 | setCastAbsent | 休み/出勤切替 | 必須 |
+| uploadImage | Drive画像フォルダへの画像追加 | 任意 |
 | refreshImageCache | Drive画像キャッシュ更新 | 任意 |
 | checkImages | 画像未登録チェック | 任意 |
 
@@ -296,7 +297,52 @@ https://drive.google.com/thumbnail?id={fileId}&sz=w600
 }
 ```
 
-## 13. refreshImageCache
+## 13. uploadImage
+
+### 用途
+
+GitHub Pages から画像を追加し、選択したDrive画像フォルダへ保存します。
+
+画像アップロードはURL長制限を避けるため、JSONPではなくPOSTで送信します。保存ファイル名は `name + 元画像の拡張子` です。
+
+### payload
+
+```json
+{
+  "name": "あいな",
+  "folderKey": "osaka",
+  "fileName": "source.jpg",
+  "mimeType": "image/jpeg",
+  "dataUrl": "data:image/jpeg;base64,..."
+}
+```
+
+`folderKey`:
+
+| 値 | 保存先 |
+|---|---|
+| osaka | 大阪フォルダ |
+| tokyo | 東京フォルダ |
+
+### data
+
+```json
+{
+  "success": true,
+  "name": "あいな",
+  "fileName": "あいな.jpg",
+  "fileId": "drive-file-id",
+  "folderKey": "osaka",
+  "folderLabel": "大阪",
+  "imageUrl": "https://drive.google.com/thumbnail?id=drive-file-id&sz=w600",
+  "uploadLogSpreadsheetId": "1QivIBngvbskj7oNbToliE9_aq3Gke74VyrL37zU7qac",
+  "uploadLogSheetName": "画像保存記録"
+}
+```
+
+保存記録は `IMAGE_UPLOAD_LOG_SPREADSHEET_ID` のSpreadsheetに追記します。記録のみ失敗した場合はアップロードを成功扱いにし、`エラーログ` に記録します。
+
+## 14. refreshImageCache
 
 ### 用途
 
@@ -322,7 +368,7 @@ Google Driveの画像ファイル一覧を再取得し、キャッシュしま�
 }
 ```
 
-## 14. checkImages
+## 15. checkImages
 
 ### 用途
 
@@ -343,13 +389,13 @@ Google Driveの画像ファイル一覧を再取得し、キャッシュしま�
 }
 ```
 
-## 15. エラー処理
+## 16. エラー処理
 
 GAS側で例外が発生した場合、エラー内容を `エラーログ` シートへ保存します。
 
 フロント側では toast または alert で表示します。
 
-## 16. 注意事項
+## 17. 注意事項
 
 - GitHub Pages側に秘密情報は置かない。
 - GAS_WEB_APP_URLは公開前提で扱う。

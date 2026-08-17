@@ -194,6 +194,12 @@ clasp deploy
 17zZbEhzgr3Fp_yfdox3zWLhO5kSUwvhZ
 ```
 
+画像追加時の保存記録は `IMAGE_UPLOAD_LOG_SPREADSHEET_ID` のSpreadsheetに追記します。初期値は以下です。
+
+```text
+1QivIBngvbskj7oNbToliE9_aq3Gke74VyrL37zU7qac
+```
+
 ## 実装順
 
 1. README / docs 整備
@@ -204,9 +210,10 @@ clasp deploy
 6. changeDateAndStore
 7. getImageList
 8. 休み設定
-9. 画像未登録チェック
-10. 画像キャッシュ更新
-11. UI改善
+9. 画像追加
+10. 画像未登録チェック
+11. 画像キャッシュ更新
+12. UI改善
 
 ## 注意事項
 

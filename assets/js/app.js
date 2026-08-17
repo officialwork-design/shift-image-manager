@@ -19,6 +19,7 @@ const WORK_TIME_OPTIONS = [
 ];
 
 const SHIFT_STATUSES = ['出勤', '休み'];
+const UPLOAD_MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 // キャスト名 → SNS ID（表示は「名前 @id」、保存値は名前のみ）
 const CAST_OPTIONS = {
@@ -137,6 +138,8 @@ function bindEvents() {
   document.getElementById('addCastButton').addEventListener('click', addCastRow);
   document.getElementById('checkButton').addEventListener('click', checkImages);
   document.getElementById('exportButton').addEventListener('click', exportImage);
+  document.getElementById('uploadImageButton').addEventListener('click', uploadImage);
+  document.getElementById('uploadImageFile').addEventListener('change', onUploadFileChange);
   document.getElementById('siftPreviewSelect').addEventListener('change', onPreviewChange);
   document.getElementById('resetFromSourceButton').addEventListener('click', resetFromSource);
 
@@ -816,6 +819,97 @@ async function checkImages() {
   } finally {
     setProcessing(false);
   }
+}
+
+function onUploadFileChange() {
+  const fileInput = document.getElementById('uploadImageFile');
+  const nameInput = document.getElementById('uploadCastName');
+  const preview = document.getElementById('uploadPreview');
+  const file = fileInput.files && fileInput.files[0];
+
+  preview.innerHTML = '';
+  preview.classList.add('d-none');
+
+  if (!file) return;
+
+  if (!nameInput.value.trim()) {
+    nameInput.value = stripExtension(file.name);
+  }
+
+  if (file.type && file.type.indexOf('image/') === 0) {
+    const url = URL.createObjectURL(file);
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = '';
+    img.onload = () => URL.revokeObjectURL(url);
+    preview.appendChild(img);
+    preview.classList.remove('d-none');
+  }
+}
+
+async function uploadImage() {
+  const nameInput = document.getElementById('uploadCastName');
+  const folderInput = document.getElementById('uploadFolderKey');
+  const fileInput = document.getElementById('uploadImageFile');
+  const file = fileInput.files && fileInput.files[0];
+  const name = nameInput.value.trim();
+
+  if (!name) {
+    showAlert('画像名を入力してください。', 'warning');
+    return;
+  }
+  if (!file) {
+    showAlert('追加する画像ファイルを選択してください。', 'warning');
+    return;
+  }
+  if (!file.type || file.type.indexOf('image/') !== 0) {
+    showAlert('画像ファイルを選択してください。', 'warning');
+    return;
+  }
+  if (file.size > UPLOAD_MAX_FILE_BYTES) {
+    showAlert('画像サイズが大きすぎます。10MB以下の画像を選択してください。', 'warning');
+    return;
+  }
+
+  try {
+    setProcessing(true, '画像追加中');
+    const dataUrl = await readFileAsDataUrl(file);
+    const result = await Api.post('uploadImage', {
+      name,
+      folderKey: folderInput.value,
+      fileName: file.name,
+      mimeType: file.type,
+      dataUrl
+    }, 90000);
+
+    fileInput.value = '';
+    document.getElementById('uploadPreview').classList.add('d-none');
+    showAlert(`${result.folderLabel}フォルダに ${result.fileName} を追加しました。`, 'success');
+
+    const store = document.getElementById('storePicker').value;
+    const date = document.getElementById('datePicker').value;
+    if (store && date) await refreshCurrentShift();
+  } catch (err) {
+    const message = err.name === 'AbortError'
+      ? '画像追加がタイムアウトしました。画像サイズを小さくして再試行してください。'
+      : err.message;
+    showAlert(message, 'danger');
+  } finally {
+    setProcessing(false);
+  }
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('画像ファイルを読み取れません'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function stripExtension(fileName) {
+  return String(fileName || '').replace(/\.[^/.]+$/, '').trim();
 }
 
 async function exportImage() {

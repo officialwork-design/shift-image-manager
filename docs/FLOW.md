@@ -197,7 +197,34 @@ CacheServiceへ保存
 画像一覧を再描画
 ```
 
-## 11. エラー処理フロー
+## 11. 画像追加フロー
+
+```text
+ユーザーが名前を入力
+↓
+大阪 / 東京フォルダを選択
+↓
+画像ファイルを選択
+↓
+uploadImage をPOSTで実行
+↓
+GASで name + 元拡張子 のファイル名を作成
+↓
+選択されたDriveフォルダへ画像を保存
+↓
+保存記録Spreadsheetへ追記
+↓
+画像キャッシュを破棄
+↓
+getImageList を再取得して編集テーブル・画像プレビューを再描画
+```
+
+- 保存先は大阪フォルダ `17zZbEhzgr3Fp_yfdox3zWLhO5kSUwvhZ` または東京フォルダ `1Ob0yiSr0yP_sHa72t9xg8xmGn5YEUYR-`。
+- 保存記録は `IMAGE_UPLOAD_LOG_SPREADSHEET_ID` の `SHEET_IMAGE_UPLOAD_LOG` タブへ追記する。
+- アップロードはURL長制限を避けるため、JSONPではなくPOSTで送信する。
+- 画像追加後は自動照合用のファイル名として、入力名から拡張子を除いた名前を使用する。
+
+## 12. エラー処理フロー
 
 ```text
 API処理開始
@@ -213,7 +240,7 @@ try / catch で処理
 フロントで toast / alert 表示
 ```
 
-## 12. GitHub運用フロー
+## 13. GitHub運用フロー
 
 ```text
 GitHub Repository
@@ -231,7 +258,7 @@ git push
 GitHub Pagesへ反映
 ```
 
-## 13. GAS運用フロー
+## 14. GAS運用フロー
 
 ```text
 社内PCで gas/*.gs / gas/appsscript.json を編集
@@ -267,7 +294,7 @@ Webアプリをデプロイ
 GAS_WEB_APP_URL を ID管理 / config.js に反映
 ```
 
-## 14. GAS責務分離
+## 15. GAS責務分離
 
 ```text
 ApiRouter.gs
@@ -286,7 +313,7 @@ Utils.gs
 - `ID管理` シートの設定を優先し、秘密情報が必要な場合のみ Script Properties を使う。
 - GitHub Pages からは JSONP / WebApp API を呼び、`google.script.run` は使用しない。
 
-## 15. デプロイ確認フロー
+## 16. デプロイ確認フロー
 
 ```text
 GitHub Pagesを開く
@@ -308,7 +335,7 @@ SIFT_DATA投稿文が表示されるか確認
 ログが記録されるか確認
 ```
 
-## 15-2. 編集SIFT_DATA確認フロー
+## 16-2. 編集SIFT_DATA確認フロー
 
 SIFT_DATA確認は「原本」と「編集結果」の2系統に分離する。
 
@@ -336,7 +363,7 @@ SIFT_DATA原本確認（A）
 - 保存後（refreshCurrentShift → render）も最新状態を再描画する。
 - 画像プレビューは保存後の更新でよい。
 
-## 15-3. 元データから初期化フロー
+## 16-3. 元データから初期化フロー
 
 ```text
 ユーザーが「元データから初期化」を押す

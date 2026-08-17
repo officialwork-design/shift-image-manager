@@ -10,15 +10,31 @@ const Api = (() => {
     return jsonpRequest(config.GAS_WEB_APP_URL, action, payload);
   }
 
-  async function fetchRequest(url, action, payload) {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action, payload })
-    });
-    const data = await res.json();
-    if (!data.success) throw new Error(data.message || 'API error');
-    return data.data;
+  async function fetchRequest(url, action, payload, timeoutMs = 30000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        body: JSON.stringify({ action, payload }),
+        signal: controller.signal
+      });
+
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || 'API error');
+      return data.data;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  function post(action, payload = {}, timeoutMs = 60000) {
+    const config = window.APP_CONFIG || {};
+    if (!config.GAS_WEB_APP_URL) {
+      return Promise.reject(new Error('config.js の GAS_WEB_APP_URL が未設定です'));
+    }
+    return fetchRequest(config.GAS_WEB_APP_URL, action, payload, timeoutMs);
   }
 
   function jsonpRequest(url, action, payload) {
@@ -50,5 +66,5 @@ const Api = (() => {
     });
   }
 
-  return { request };
+  return { request, post };
 })();

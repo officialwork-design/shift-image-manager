@@ -1,5 +1,8 @@
 const IMAGE_CACHE_KEY = 'SHIFT_IMAGE_MAP_V5';
 const IMAGE_FOLDER_MAX_DEPTH = 5;
+const IMAGE_UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
+const TOKYO_IMAGE_FOLDER_ID = '1Ob0yiSr0yP_sHa72t9xg8xmGn5YEUYR-';
+const OSAKA_IMAGE_FOLDER_ID = '17zZbEhzgr3Fp_yfdox3zWLhO5kSUwvhZ';
 
 const ImageService = {
   refreshCache() {
@@ -46,6 +49,57 @@ const ImageService = {
     if (!fileId) return '';
     const safeSize = size || 'w240';
     return 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(fileId) + '&sz=' + encodeURIComponent(safeSize);
+  },
+
+  uploadImage(payload) {
+    const target = this.getUploadTarget_(payload.folderKey);
+    const castName = this.sanitizeUploadName_(payload.name);
+    if (!castName) throw new Error('画像名を入力してください');
+
+    const parsed = this.parseImageDataUrl_(payload.dataUrl || '');
+    if (!this.isAllowedUploadMimeType_(parsed.mimeType)) {
+      throw new Error('画像ファイルを選択してください');
+    }
+
+    const bytes = Utilities.base64Decode(parsed.base64);
+    if (bytes.length > IMAGE_UPLOAD_MAX_BYTES) {
+      throw new Error('画像サイズが大きすぎます。10MB以下にしてください');
+    }
+
+    const extension = this.getUploadExtension_(payload.fileName, parsed.mimeType);
+    const fileName = castName + extension;
+    const blob = Utilities.newBlob(bytes, parsed.mimeType, fileName);
+    const file = DriveApp.getFolderById(target.folderId).createFile(blob);
+    file.setName(fileName);
+    const fileId = file.getId();
+    const imageUrl = this.getThumbnailUrl(fileId, 'w600');
+
+    CacheService.getScriptCache().remove(IMAGE_CACHE_KEY);
+    LogService.operation('画像追加', '', '', castName, '', target.label + ' / ' + fileName, '成功', fileId);
+    const uploadLogConfig = this.getUploadLogConfig_();
+    this.writeUploadLogSafely_({
+      castName,
+      target,
+      fileName,
+      fileId,
+      imageUrl,
+      sourceFileName: payload.fileName || '',
+      mimeType: parsed.mimeType,
+      sizeBytes: bytes.length,
+      uploadLogConfig
+    });
+
+    return {
+      success: true,
+      name: castName,
+      fileName,
+      fileId,
+      folderKey: target.key,
+      folderLabel: target.label,
+      imageUrl,
+      uploadLogSpreadsheetId: uploadLogConfig.spreadsheetId,
+      uploadLogSheetName: uploadLogConfig.sheetName
+    };
   },
 
   checkImages() {
@@ -213,6 +267,132 @@ const ImageService = {
     const idMatch = text.match(/[?&]id=([A-Za-z0-9_-]+)/);
     if (idMatch) return idMatch[1];
     return text;
+  },
+
+  getUploadTarget_(folderKey) {
+    const key = String(folderKey || '').toLowerCase();
+    const config = ConfigService.getConfig();
+    const targets = {
+      tokyo: {
+        key: 'tokyo',
+        label: '東京',
+        folderId: this.extractFolderId_(config.DRIVE_IMAGE_FOLDER_ID || DEFAULT_CONFIG.DRIVE_IMAGE_FOLDER_ID || TOKYO_IMAGE_FOLDER_ID)
+      },
+      osaka: {
+        key: 'osaka',
+        label: '大阪',
+        folderId: this.getOsakaUploadFolderId_(config)
+      }
+    };
+
+    if (!targets[key] || !targets[key].folderId) {
+      throw new Error('画像追加先フォルダを選択してください');
+    }
+
+    return targets[key];
+  },
+
+  getOsakaUploadFolderId_(config) {
+    const folderIds = String(config.DRIVE_IMAGE_FOLDER_IDS || DEFAULT_CONFIG.DRIVE_IMAGE_FOLDER_IDS || OSAKA_IMAGE_FOLDER_ID)
+      .split(/[\s,;]+/)
+      .map(value => this.extractFolderId_(value))
+      .filter(Boolean);
+    return folderIds.indexOf(OSAKA_IMAGE_FOLDER_ID) !== -1 ? OSAKA_IMAGE_FOLDER_ID : (folderIds[0] || OSAKA_IMAGE_FOLDER_ID);
+  },
+
+  writeUploadLogSafely_(record) {
+    try {
+      this.writeUploadLog_(record);
+    } catch (err) {
+      LogService.error('ImageService.writeUploadLog', err, {
+        castName: record.castName,
+        folderKey: record.target && record.target.key,
+        fileId: record.fileId
+      });
+    }
+  },
+
+  writeUploadLog_(record) {
+    const logConfig = record.uploadLogConfig || this.getUploadLogConfig_();
+    if (!logConfig.spreadsheetId) return;
+
+    const spreadsheet = SpreadsheetApp.openById(logConfig.spreadsheetId);
+    const sheet = spreadsheet.getSheetByName(logConfig.sheetName) || spreadsheet.insertSheet(logConfig.sheetName);
+    this.ensureUploadLogHeader_(sheet);
+    sheet.appendRow([
+      Utils.now(),
+      record.castName,
+      record.target.label,
+      record.target.key,
+      record.target.folderId,
+      record.fileName,
+      record.fileId,
+      record.imageUrl,
+      record.sourceFileName,
+      record.mimeType,
+      record.sizeBytes
+    ]);
+  },
+
+  getUploadLogConfig_() {
+    const config = ConfigService.getConfig();
+    return {
+      spreadsheetId: this.extractSpreadsheetId_(config.IMAGE_UPLOAD_LOG_SPREADSHEET_ID || DEFAULT_CONFIG.IMAGE_UPLOAD_LOG_SPREADSHEET_ID || ''),
+      sheetName: String(config.SHEET_IMAGE_UPLOAD_LOG || DEFAULT_CONFIG.SHEET_IMAGE_UPLOAD_LOG || '画像保存記録').trim()
+    };
+  },
+
+  extractSpreadsheetId_(value) {
+    const text = String(value || '').trim();
+    if (!text) return '';
+    const spreadsheetMatch = text.match(/\/spreadsheets\/d\/([A-Za-z0-9_-]+)/);
+    if (spreadsheetMatch) return spreadsheetMatch[1];
+    const idMatch = text.match(/[?&]id=([A-Za-z0-9_-]+)/);
+    if (idMatch) return idMatch[1];
+    return text;
+  },
+
+  ensureUploadLogHeader_(sheet) {
+    const headers = ['日時', '名前', '保存先', 'folderKey', 'folderId', 'ファイル名', 'fileId', '画像URL', '元ファイル名', 'mimeType', 'sizeBytes'];
+    if (sheet.getLastRow() > 0) {
+      const existing = sheet.getRange(1, 1, 1, headers.length).getDisplayValues()[0].join('');
+      if (existing) return;
+    }
+
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sheet.setFrozenRows(1);
+  },
+
+  sanitizeUploadName_(name) {
+    const normalized = SiftService.normalizeCastName(name) || Utils.normalize(name);
+    return Utils.stripExtension(normalized)
+      .replace(/[\\/:*?"<>|#%{}^~[\]`]/g, '')
+      .trim();
+  },
+
+  parseImageDataUrl_(dataUrl) {
+    const match = String(dataUrl || '').match(/^data:([^;,]+);base64,(.+)$/);
+    if (!match) throw new Error('画像データを読み取れません');
+    return {
+      mimeType: match[1],
+      base64: match[2]
+    };
+  },
+
+  getUploadExtension_(fileName, mimeType) {
+    const nameMatch = String(fileName || '').match(/\.(jpe?g|png|webp|gif)$/i);
+    if (nameMatch) return '.' + nameMatch[1].toLowerCase().replace('jpeg', 'jpg');
+    const extensions = {
+      'image/jpeg': '.jpg',
+      'image/png': '.png',
+      'image/webp': '.webp',
+      'image/gif': '.gif'
+    };
+    return extensions[String(mimeType || '').toLowerCase()] || '.jpg';
+  },
+
+  isAllowedUploadMimeType_(mimeType) {
+    return ['image/jpeg', 'image/png', 'image/webp', 'image/gif'].indexOf(String(mimeType || '').toLowerCase()) !== -1;
   },
 
   getImageNameKeys_(baseName) {

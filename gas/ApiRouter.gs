@@ -60,6 +60,8 @@ const ApiRouter = {
         return ImageService.refreshCache();
       case 'checkImages':
         return ImageService.checkImages();
+      case 'uploadImage':
+        return ImageService.uploadImage(payload || {});
       default:
         throw new Error('Unknown action: ' + action);
     }
@@ -67,9 +69,26 @@ const ApiRouter = {
 
   getErrorPayload_(e, request) {
     return {
-      request,
+      request: this.sanitizeRequestForLog_(request),
       parameters: e && e.parameter ? e.parameter : {},
-      postData: e && e.postData && e.postData.contents ? e.postData.contents : ''
+      postData: this.sanitizePostDataForLog_(e && e.postData && e.postData.contents ? e.postData.contents : '')
     };
+  },
+
+  sanitizeRequestForLog_(request) {
+    const safePayload = Object.assign({}, request && request.payload ? request.payload : {});
+    if (safePayload.dataUrl) {
+      safePayload.dataUrl = '[omitted dataUrl length=' + String(request.payload.dataUrl).length + ']';
+    }
+    return {
+      action: request && request.action ? request.action : '',
+      payload: safePayload
+    };
+  },
+
+  sanitizePostDataForLog_(postData) {
+    const text = String(postData || '');
+    if (text.length <= 2000) return text;
+    return text.slice(0, 1000) + '\n[omitted postData length=' + text.length + ']';
   }
 };
