@@ -106,6 +106,46 @@ const ImageService = {
     };
   },
 
+  verifyImageUpload(payload) {
+    const target = this.getUploadTarget_(payload.folderKey);
+    const castName = this.sanitizeUploadName_(payload.name);
+    if (!castName) throw new Error('画像名を入力してください');
+
+    const extension = this.getUploadExtension_(payload.fileName, payload.mimeType);
+    const fileName = castName + extension;
+    const excluded = this.toLookup_(payload.excludeFileIds || []);
+    const folder = DriveApp.getFolderById(target.folderId);
+    const files = folder.getFilesByName(fileName);
+    const matches = [];
+    const newMatches = [];
+
+    while (files.hasNext()) {
+      const file = files.next();
+      const record = {
+        fileId: file.getId(),
+        fileName: file.getName(),
+        imageUrl: this.getThumbnailUrl(file.getId(), 'w600'),
+        createdAt: Utils.formatDateTime(file.getDateCreated())
+      };
+      matches.push(record);
+      if (!excluded[record.fileId]) newMatches.push(record);
+    }
+
+    const newest = newMatches[0] || null;
+    return {
+      found: !!newest,
+      name: castName,
+      fileName,
+      folderKey: target.key,
+      folderLabel: target.label,
+      folderId: target.folderId,
+      fileId: newest ? newest.fileId : '',
+      imageUrl: newest ? newest.imageUrl : '',
+      matches,
+      newMatches
+    };
+  },
+
   checkImages() {
     const config = ConfigService.getConfig();
     const sheet = SpreadsheetService.getSheet(config.SHEET_IMAGE_GENERATION);
@@ -397,6 +437,15 @@ const ImageService = {
 
   isAllowedUploadMimeType_(mimeType) {
     return ['image/jpeg', 'image/png', 'image/webp', 'image/gif'].indexOf(String(mimeType || '').toLowerCase()) !== -1;
+  },
+
+  toLookup_(values) {
+    const lookup = {};
+    (Array.isArray(values) ? values : []).forEach(value => {
+      const key = String(value || '').trim();
+      if (key) lookup[key] = true;
+    });
+    return lookup;
   },
 
   getImageNameKeys_(baseName) {

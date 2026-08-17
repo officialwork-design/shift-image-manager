@@ -208,6 +208,8 @@ CacheServiceへ保存
 ↓
 JSONPで uploadImage action の存在を確認
 ↓
+verifyImageUpload で既存同名ファイルIDを控える
+↓
 uploadImage をフォームPOSTで実行
 ↓
 GASで name + 元拡張子 のファイル名を作成
@@ -215,6 +217,8 @@ GASで name + 元拡張子 のファイル名を作成
 選択されたDriveフォルダへ画像を保存
 ↓
 保存記録Spreadsheetへ追記
+↓
+verifyImageUpload で新規ファイルの追加を確認
 ↓
 画像キャッシュを破棄
 ↓
@@ -224,6 +228,7 @@ getImageList を再取得して編集テーブル・画像プレビューを再�
 - 保存先は大阪フォルダ `17zZbEhzgr3Fp_yfdox3zWLhO5kSUwvhZ` または東京フォルダ `1Ob0yiSr0yP_sHa72t9xg8xmGn5YEUYR-`。
 - 保存記録は `IMAGE_UPLOAD_LOG_SPREADSHEET_ID` の `SHEET_IMAGE_UPLOAD_LOG` タブへ追記する。
 - アップロードはURL長制限とCORS制約を避けるため、隠しフォームPOSTで送信する。
+- フロントはフォームPOSTのレスポンスを直接読まず、Drive上の新規ファイル確認後に成功表示する。
 - `Unknown action: uploadImage` が返る場合は Apps Script の新バージョン再デプロイが必要。
 - 画像追加後は自動照合用のファイル名として、入力名から拡張子を除いた名前を使用する。
 

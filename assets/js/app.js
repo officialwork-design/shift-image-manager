@@ -872,22 +872,31 @@ async function uploadImage() {
   }
 
   try {
-    setProcessing(true, '画像追加中');
-    const dataUrl = await readFileAsDataUrl(file);
-    await Api.post('uploadImage', {
+    const uploadPayload = {
       name,
       folderKey: folderInput.value,
       fileName: file.name,
-      mimeType: file.type,
-      dataUrl
-    }, 90000);
+      mimeType: file.type
+    };
+    setProcessing(true, '画像追加準備中');
+    const beforeUpload = await Api.request('verifyImageUpload', uploadPayload);
+    const existingFileIds = (beforeUpload.matches || []).map(item => item.fileId);
+
+    setProcessing(true, '画像追加中');
+    const dataUrl = await readFileAsDataUrl(file);
+    await Api.post('uploadImage', Object.assign({}, uploadPayload, { dataUrl }), 90000);
+
+    setProcessing(true, '画像反映確認中');
+    const verified = await waitForUploadedImage(uploadPayload, existingFileIds);
+    if (!verified || !verified.found) {
+      throw new Error('画像を送信しましたが、Driveフォルダで確認できませんでした。Apps Scriptの実行履歴とエラーログを確認してください。');
+    }
 
     fileInput.value = '';
     document.getElementById('uploadPreview').classList.add('d-none');
-    showAlert(`${getSelectedText(folderInput)}フォルダへ画像を送信しました。`, 'success');
+    showAlert(`${verified.folderLabel}フォルダに ${verified.fileName} を追加しました。`, 'success');
 
     setProcessing(true, '画像一覧更新中');
-    await wait(1200);
     await Api.request('refreshImageCache');
 
     const store = document.getElementById('storePicker').value;
@@ -912,13 +921,20 @@ function readFileAsDataUrl(file) {
   });
 }
 
-function wait(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+async function waitForUploadedImage(payload, existingFileIds) {
+  let result = null;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    if (attempt > 0) await wait(1500);
+    result = await Api.request('verifyImageUpload', Object.assign({}, payload, {
+      excludeFileIds: existingFileIds || []
+    }));
+    if (result.found) return result;
+  }
+  return result;
 }
 
-function getSelectedText(select) {
-  if (!select || !select.options || select.selectedIndex < 0) return '';
-  return select.options[select.selectedIndex].textContent.trim();
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 function stripExtension(fileName) {

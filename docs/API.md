@@ -86,6 +86,7 @@ payload={...}
 | updateShiftRows | 編集テーブルの一括保存 | 必須 |
 | setCastAbsent | 休み/出勤切替 | 必須 |
 | uploadImage | Drive画像フォルダへの画像追加 | 任意 |
+| verifyImageUpload | 画像追加後のDrive反映確認 | 任意 |
 | refreshImageCache | Drive画像キャッシュ更新 | 任意 |
 | checkImages | 画像未登録チェック | 任意 |
 
@@ -351,11 +352,48 @@ GitHub Pages から `fetch POST` はCORSで失敗しやすいため使用しま�
 }
 ```
 
-フォームPOSTのため、フロント側はこのレスポンスを直接読みません。送信後に `refreshImageCache` と `getImageList` をJSONPで再取得します。
+フォームPOSTのため、フロント側はこのレスポンスを直接読みません。送信後に `verifyImageUpload` でDrive反映を確認し、`refreshImageCache` と `getImageList` をJSONPで再取得します。
 
 保存記録は `IMAGE_UPLOAD_LOG_SPREADSHEET_ID` のSpreadsheetに追記します。記録のみ失敗した場合はアップロードを成功扱いにし、`エラーログ` に記録します。
 
-## 14. refreshImageCache
+## 14. verifyImageUpload
+
+### 用途
+
+選択フォルダに `name + 元画像の拡張子` の画像が存在するか確認します。
+
+アップロード前に既存の同名ファイルIDを取得し、アップロード後は `excludeFileIds` に渡すことで、新規追加されたファイルだけを成功判定に使います。
+
+### payload
+
+```json
+{
+  "name": "あいな",
+  "folderKey": "osaka",
+  "fileName": "source.jpg",
+  "mimeType": "image/jpeg",
+  "excludeFileIds": ["existing-drive-file-id"]
+}
+```
+
+### data
+
+```json
+{
+  "found": true,
+  "name": "あいな",
+  "fileName": "あいな.jpg",
+  "folderKey": "osaka",
+  "folderLabel": "大阪",
+  "folderId": "17zZbEhzgr3Fp_yfdox3zWLhO5kSUwvhZ",
+  "fileId": "new-drive-file-id",
+  "imageUrl": "https://drive.google.com/thumbnail?id=new-drive-file-id&sz=w600",
+  "matches": [],
+  "newMatches": []
+}
+```
+
+## 15. refreshImageCache
 
 ### 用途
 
@@ -381,7 +419,7 @@ Google Driveの画像ファイル一覧を再取得し、キャッシュしま�
 }
 ```
 
-## 15. checkImages
+## 16. checkImages
 
 ### 用途
 
@@ -402,13 +440,13 @@ Google Driveの画像ファイル一覧を再取得し、キャッシュしま�
 }
 ```
 
-## 16. エラー処理
+## 17. エラー処理
 
 GAS側で例外が発生した場合、エラー内容を `エラーログ` シートへ保存します。
 
 フロント側では toast または alert で表示します。
 
-## 17. 注意事項
+## 18. 注意事項
 
 - GitHub Pages側に秘密情報は置かない。
 - GAS_WEB_APP_URLは公開前提で扱う。

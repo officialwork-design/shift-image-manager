@@ -42,6 +42,10 @@ const Utils = {
     return Utilities.formatDate(new Date(), this.getTimezone_(), pattern || 'yyyy/MM/dd HH:mm:ss');
   },
 
+  formatDateTime(date, pattern) {
+    return Utilities.formatDate(date, this.getTimezone_(), pattern || 'yyyy/MM/dd HH:mm:ss');
+  },
+
   getTimezone_() {
     try {
       return ConfigService.getConfig().TIMEZONE || DEFAULT_CONFIG.TIMEZONE;

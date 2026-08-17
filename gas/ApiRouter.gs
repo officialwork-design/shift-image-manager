@@ -33,9 +33,11 @@ const ApiRouter = {
 
     const body = e && e.postData && e.postData.contents ? e.postData.contents : '{}';
     const request = Utils.parseJson(body, {});
-    if (!request.action && params.action) {
-      request.action = String(params.action || '').trim();
-      request.payload = params.payload ? Utils.parseJson(params.payload, {}) : {};
+    if (!request.action) {
+      const form = this.parseFormBody_(body);
+      const payloadText = params.payload || form.payload || '';
+      request.action = String(params.action || form.action || '').trim();
+      request.payload = payloadText ? Utils.parseJson(payloadText, {}) : {};
     }
     return request;
   },
@@ -62,8 +64,30 @@ const ApiRouter = {
         return ImageService.checkImages();
       case 'uploadImage':
         return ImageService.uploadImage(payload || {});
+      case 'verifyImageUpload':
+        return ImageService.verifyImageUpload(payload || {});
       default:
         throw new Error('Unknown action: ' + action);
+    }
+  },
+
+  parseFormBody_(body) {
+    const values = {};
+    String(body || '').split('&').forEach(pair => {
+      if (!pair) return;
+      const parts = pair.split('=');
+      const key = this.decodeFormValue_(parts.shift());
+      if (!key) return;
+      values[key] = this.decodeFormValue_(parts.join('='));
+    });
+    return values;
+  },
+
+  decodeFormValue_(value) {
+    try {
+      return decodeURIComponent(String(value || '').replace(/\+/g, ' '));
+    } catch (err) {
+      return String(value || '');
     }
   },
 
