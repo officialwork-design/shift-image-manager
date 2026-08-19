@@ -208,7 +208,9 @@ CacheServiceへ保存
 ↓
 ローカル画像ファイルを選択
 ↓
-uploadImageFile を multipart/form-data で実行
+ブラウザでdataURLへ変換
+↓
+uploadImage をiframe POSTで実行
 ↓
 Driveフォルダへ保存
 ↓

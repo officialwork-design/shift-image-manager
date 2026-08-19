@@ -897,19 +897,25 @@ async function uploadImage() {
   }
 
   try {
-    setProcessing(true, '画像登録中');
-    const result = file
-      ? await Api.postFile('uploadImageFile', {
+    setProcessing(true, file ? '画像読み込み中' : '画像登録中');
+    let result;
+    if (file) {
+      const dataUrl = await readFileAsDataUrl(file);
+      setProcessing(true, '画像登録中');
+      result = await Api.post('uploadImage', {
         name,
         folderKey: folderInput.value,
         fileName: file.name,
-        mimeType: file.type || getMimeTypeFromFileName(file.name)
-      }, localFileInput, 90000)
-      : await Api.request('registerImage', {
+        mimeType: file.type || getMimeTypeFromFileName(file.name),
+        dataUrl
+      }, 120000);
+    } else {
+      result = await Api.request('registerImage', {
         name,
         folderKey: folderInput.value,
         fileIdOrUrl
       });
+    }
 
     localFileInput.value = '';
     driveInput.value = '';
@@ -969,6 +975,15 @@ function getMimeTypeFromFileName(fileName) {
   if (/\.webp$/.test(text)) return 'image/webp';
   if (/\.gif$/.test(text)) return 'image/gif';
   return 'image/jpeg';
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('画像ファイルを読み取れませんでした。'));
+    reader.readAsDataURL(file);
+  });
 }
 
 async function exportImage() {
