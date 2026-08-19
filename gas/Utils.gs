@@ -32,45 +32,14 @@ const Utils = {
     return ContentService.createTextOutput(body).setMimeType(mimeType);
   },
 
-  outputPostMessage(obj, messageId, parentOrigin) {
-    const targetOrigin = this.getPostMessageOrigin(parentOrigin);
-    const message = {
-      source: 'shift-image-manager',
-      messageId: String(messageId || ''),
-      response: obj
-    };
-    const html = [
-      '<!doctype html><html><head><meta charset="utf-8"></head><body>',
-      '<script>',
-      'window.parent.postMessage(',
-      JSON.stringify(message).replace(/</g, '\\u003c'),
-      ',',
-      JSON.stringify(targetOrigin),
-      ');',
-      '</script>',
-      '</body></html>'
-    ].join('');
-    return HtmlService.createHtmlOutput(html)
-      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-  },
-
   getJsonpCallback(callback) {
     const name = String(callback || '').trim();
     if (!name) return '';
     return /^[A-Za-z_$][0-9A-Za-z_$]*(\.[A-Za-z_$][0-9A-Za-z_$]*)*$/.test(name) ? name : '';
   },
 
-  getPostMessageOrigin(origin) {
-    const value = String(origin || '').trim();
-    return /^https?:\/\/[A-Za-z0-9.-]+(?::\d+)?$/.test(value) ? value : '*';
-  },
-
   now(pattern) {
     return Utilities.formatDate(new Date(), this.getTimezone_(), pattern || 'yyyy/MM/dd HH:mm:ss');
-  },
-
-  formatDateTime(date, pattern) {
-    return Utilities.formatDate(date, this.getTimezone_(), pattern || 'yyyy/MM/dd HH:mm:ss');
   },
 
   getTimezone_() {
@@ -122,12 +91,7 @@ const Utils = {
 
   parseJson(text, fallback) {
     if (!text) return fallback;
-    try {
-      return JSON.parse(text);
-    } catch (err) {
-      if (arguments.length >= 2) return fallback;
-      throw err;
-    }
+    return JSON.parse(text);
   },
 
   errorMessage(err) {

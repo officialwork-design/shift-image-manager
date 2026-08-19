@@ -68,7 +68,6 @@ ID類は Spreadsheet の `ID管理` シートで管理します。
 - Drive画像取得
 - 出勤中一覧表示
 - 休み設定
-- 画像登録
 - 画像未登録チェック
 - 画像キャッシュ更新
 - 操作ログ記録
@@ -102,13 +101,7 @@ B2: AKIBA 7月2日投稿
 
 ## 10. 画像取得仕様
 
-`画像登録` シートに登録されたDrive画像を優先して画像照合に使用します。
-
-`画像登録` シートの列は `名前 / ファイルID / ファイルURL / サムネイルURL / フォルダ名 / 更新日` です。
-
-Google Drive の `DRIVE_IMAGE_FOLDER_ID` と `DRIVE_IMAGE_FOLDER_IDS` に設定されたフォルダからも画像を取得します。
-
-Driveフォルダ全走査は `ENABLE_DRIVE_IMAGE_SCAN=true` の場合のみ実行します。通常運用ではタイムアウト回避のため `false` にします。
+Google Drive の `DRIVE_IMAGE_FOLDER_ID` と `DRIVE_IMAGE_FOLDER_IDS` に設定されたフォルダから画像を取得します。
 
 `DRIVE_IMAGE_FOLDER_IDS` はカンマ区切りまたは改行区切りで複数指定できます。フォルダーIDだけでなく、Google Drive のフォルダーURLも指定できます。指定フォルダー配下のサブフォルダーも画像取得対象です。
 

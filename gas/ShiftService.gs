@@ -81,7 +81,7 @@ const ShiftService = {
         isAbsent: item.status === '休み',
         usedOverride,
         usedPreparing,
-        imageUrl: imageId ? ImageService.getImageUrlForFileId(imageData, imageId, 'w600') : ''
+        imageUrl: imageId ? ImageService.getThumbnailUrl(imageId, 'w600') : ''
       });
 
       if (viewRow.isAbsent) absentCastList.push(viewRow);

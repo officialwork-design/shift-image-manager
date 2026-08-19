@@ -10,22 +10,20 @@ const ApiRouter = {
   handle(e, isJsonp) {
     const started = new Date();
     const callback = e && e.parameter ? e.parameter.callback : '';
-    const responseOptions = this.getResponseOptions_(e);
     let request = { action: '', payload: {} };
 
     try {
       request = this.parseRequest(e, isJsonp);
       const data = this.route(request.action, request.payload || {});
-      return this.output_(Utils.successResponse(data, new Date() - started), callback, responseOptions);
+      return Utils.output(Utils.successResponse(data, new Date() - started), callback);
     } catch (err) {
       LogService.error(request.action || 'ApiRouter.handle', err, this.getErrorPayload_(e, request));
-      return this.output_(Utils.errorResponse(err, request.action, new Date() - started), callback, responseOptions);
+      return Utils.output(Utils.errorResponse(err, request.action, new Date() - started), callback);
     }
   },
 
   parseRequest(e, isJsonp) {
     const params = e && e.parameter ? e.parameter : {};
-    const multiParams = e && e.parameters ? e.parameters : {};
     if (isJsonp) {
       return {
         action: String(params.action || '').trim(),
@@ -33,21 +31,13 @@ const ApiRouter = {
       };
     }
 
-    const body = e && e.postData && e.postData.contents ? e.postData.contents : '';
-    const request = this.parseJsonBody_(body);
-    if (!request.action) {
-      const form = this.getFormBodyValues_(e);
-      const payloadText = params.payload || form.payload || '';
-      request.action = String(params.action || form.action || '').trim();
-      request.payload = payloadText ? Utils.parseJson(payloadText, {}) : this.getParameterPayload_(params, form, multiParams);
+    const body = e && e.postData && e.postData.contents ? e.postData.contents : '{}';
+    const request = Utils.parseJson(body, {});
+    if (!request.action && params.action) {
+      request.action = String(params.action || '').trim();
+      request.payload = params.payload ? Utils.parseJson(params.payload, {}) : {};
     }
     return request;
-  },
-
-  parseJsonBody_(body) {
-    const text = String(body || '').trim();
-    if (!text || (text.charAt(0) !== '{' && text.charAt(0) !== '[')) return {};
-    return Utils.parseJson(text, {});
   },
 
   route(action, payload) {
@@ -70,116 +60,16 @@ const ApiRouter = {
         return ImageService.refreshCache();
       case 'checkImages':
         return ImageService.checkImages();
-      case 'uploadImage':
-        return ImageService.uploadImage(payload || {});
-      case 'uploadImageFile':
-        return ImageService.uploadImageFile(payload || {});
-      case 'verifyImageUpload':
-        return ImageService.verifyImageUpload(payload || {});
-      case 'registerImage':
-        return ImageService.registerImage(payload || {});
       default:
         throw new Error('Unknown action: ' + action);
     }
   },
 
-  output_(response, callback, responseOptions) {
-    if (responseOptions && responseOptions.responseMode === 'postMessage') {
-      return Utils.outputPostMessage(response, responseOptions.messageId, responseOptions.parentOrigin);
-    }
-    return Utils.output(response, callback);
-  },
-
-  getResponseOptions_(e) {
-    const params = e && e.parameter ? e.parameter : {};
-    const multiParams = e && e.parameters ? e.parameters : {};
-    const form = this.getFormBodyValues_(e);
-    return {
-      responseMode: String(params.responseMode || form.responseMode || this.firstParameter_(multiParams.responseMode) || '').trim(),
-      messageId: String(params.messageId || form.messageId || this.firstParameter_(multiParams.messageId) || '').trim(),
-      parentOrigin: String(params.parentOrigin || form.parentOrigin || this.firstParameter_(multiParams.parentOrigin) || '').trim()
-    };
-  },
-
-  getFormBodyValues_(e) {
-    const postData = e && e.postData ? e.postData : {};
-    const type = String(postData.type || '').toLowerCase();
-    const body = String(postData.contents || '');
-    const looksUrlEncoded = /^[A-Za-z0-9_.~-]+=/.test(body);
-    if (type.indexOf('application/x-www-form-urlencoded') === -1 && !looksUrlEncoded) return {};
-    return this.parseFormBody_(body);
-  },
-
-  getParameterPayload_(params, form, multiParams) {
-    const ignored = {
-      action: true,
-      callback: true,
-      payload: true,
-      responseMode: true,
-      messageId: true,
-      parentOrigin: true
-    };
-    const payload = {};
-
-    [form || {}, params || {}, multiParams || {}].forEach(source => {
-      Object.keys(source).forEach(key => {
-        if (ignored[key]) return;
-        payload[key] = this.firstParameter_(source[key]);
-      });
-    });
-
-    return payload;
-  },
-
-  firstParameter_(value) {
-    return Array.isArray(value) ? value[0] : value;
-  },
-
-  parseFormBody_(body) {
-    const values = {};
-    String(body || '').split('&').forEach(pair => {
-      if (!pair) return;
-      const parts = pair.split('=');
-      const key = this.decodeFormValue_(parts.shift());
-      if (!key) return;
-      values[key] = this.decodeFormValue_(parts.join('='));
-    });
-    return values;
-  },
-
-  decodeFormValue_(value) {
-    try {
-      return decodeURIComponent(String(value || '').replace(/\+/g, ' '));
-    } catch (err) {
-      return String(value || '');
-    }
-  },
-
   getErrorPayload_(e, request) {
     return {
-      request: this.sanitizeRequestForLog_(request),
+      request,
       parameters: e && e.parameter ? e.parameter : {},
-      postData: this.sanitizePostDataForLog_(e && e.postData && e.postData.contents ? e.postData.contents : '')
+      postData: e && e.postData && e.postData.contents ? e.postData.contents : ''
     };
-  },
-
-  sanitizeRequestForLog_(request) {
-    const safePayload = Object.assign({}, request && request.payload ? request.payload : {});
-    if (safePayload.dataUrl) {
-      safePayload.dataUrl = '[omitted dataUrl length=' + String(request.payload.dataUrl).length + ']';
-    }
-    if (safePayload.imageFile) {
-      safePayload.imageFile = '[uploaded image file]';
-    }
-    return {
-      action: request && request.action ? request.action : '',
-      payload: safePayload
-    };
-  },
-
-  sanitizePostDataForLog_(postData) {
-    const text = String(postData || '');
-    if (text.length <= 2000) return text;
-    return text.slice(0, 1000) + '\n[omitted postData length=' + text.length + ']';
   }
 };

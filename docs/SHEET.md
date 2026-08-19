@@ -54,16 +54,12 @@ GASやフロントで使用するID・URL・シート名を管理します。
 | SCRIPT_ID | 1m0G9Y3ATR885RDD1LBEjp5Zsc5Ts4qv_hq1q9kFw3Xe0WmKy5DQVnATS | GAS Script ID |
 | DRIVE_IMAGE_FOLDER_ID | 1Ob0yiSr0yP_sHa72t9xg8xmGn5YEUYR- | 画像取得フォルダ |
 | DRIVE_IMAGE_FOLDER_IDS | 17zZbEhzgr3Fp_yfdox3zWLhO5kSUwvhZ | 追加画像取得フォルダ。カンマまたは改行区切りで複数指定可 |
-| IMAGE_UPLOAD_LOG_SPREADSHEET_ID | 1QivIBngvbskj7oNbToliE9_aq3Gke74VyrL37zU7qac | 画像追加の保存記録Spreadsheet ID |
-| SHEET_IMAGE_UPLOAD_LOG | 画像保存記録 | 画像追加保存記録シート名 |
 | DRIVE_OUTPUT_FOLDER_ID | 空欄 | 現時点では未使用 |
 | SHEET_IMAGE_GENERATION | 画像生成 | 画像生成シート名 |
 | SHEET_SIFT_DATA | SIFT_DATA | SIFT_DATAシート名 |
 | SHEET_OPERATION_LOG | 画像操作ログ | 操作ログシート名 |
 | SHEET_IMAGE_CHECK | 画像チェック | 画像チェックシート名 |
 | SHEET_ERROR_LOG | エラーログ | エラーログシート名 |
-| SHEET_IMAGE_REGISTRY | 画像登録 | 画像登録シート名 |
-| ENABLE_DRIVE_IMAGE_SCAN | false | `画像登録` シートに加えてDriveフォルダを全走査する場合のみ true |
 | TIMEZONE | Asia/Tokyo | タイムゾーン |
 | APP_MODE | production | 動作モード |
 | LIFF_ID | 空欄 | 将来用 |
@@ -199,32 +195,13 @@ GAS/APIで発生したエラーを記録します。
 | E | payload |
 | F | userAgent |
 
-## 11. 画像登録
-
-### 目的
-
-Drive画像のファイルID・URLを登録し、画像照合の元データとして使用します。
-
-### ヘッダー
-
-| 列 | 項目 | 例 |
-|---|---|---|
-| A | 名前 | めう.jpeg |
-| B | ファイルID | 1x8GjrSXNH-XOYmWnbEZoeO9E_7DhxdVs |
-| C | ファイルURL | https://drive.google.com/file/d/.../view?usp=drivesdk |
-| D | サムネイルURL | https://drive.google.com/thumbnail?id=...&sz=w1000 |
-| E | フォルダ名 | 東京 |
-| F | 更新日 | 2026/04/20 |
-
-`名前` は拡張子あり・なしのどちらでも登録できます。照合時は拡張子を除いた名前をキャスト名として扱います。
-
-## 12. 初期生成ルール
+## 11. 初期生成ルール
 
 必要なシートが存在しない場合、GAS側で初期生成できるようにします。
 
 ただし、既存データを削除する処理は禁止します。
 
-## 13. 注意事項
+## 12. 注意事項
 
 - `SIFT_DATA` の投稿文はセル内改行を許可します。
 - 投稿文の表記ゆれを前提に、GAS側で名前抽出時に整形します。

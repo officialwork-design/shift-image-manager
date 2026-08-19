@@ -19,7 +19,6 @@ const WORK_TIME_OPTIONS = [
 ];
 
 const SHIFT_STATUSES = ['出勤', '休み'];
-const UPLOAD_MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 // キャスト名 → SNS ID（表示は「名前 @id」、保存値は名前のみ）
 const CAST_OPTIONS = {
@@ -138,9 +137,6 @@ function bindEvents() {
   document.getElementById('addCastButton').addEventListener('click', addCastRow);
   document.getElementById('checkButton').addEventListener('click', checkImages);
   document.getElementById('exportButton').addEventListener('click', exportImage);
-  document.getElementById('uploadImageButton').addEventListener('click', uploadImage);
-  document.getElementById('uploadImageFile').addEventListener('change', onUploadFileChange);
-  document.getElementById('uploadFileIdOrUrl').addEventListener('input', onRegisterImageInputChange);
   document.getElementById('siftPreviewSelect').addEventListener('change', onPreviewChange);
   document.getElementById('resetFromSourceButton').addEventListener('click', resetFromSource);
 
@@ -820,170 +816,6 @@ async function checkImages() {
   } finally {
     setProcessing(false);
   }
-}
-
-function onRegisterImageInputChange() {
-  const input = document.getElementById('uploadFileIdOrUrl');
-  const fileInput = document.getElementById('uploadImageFile');
-  const preview = document.getElementById('uploadPreview');
-  const fileId = extractDriveFileId(input.value);
-
-  if (fileInput.files && fileInput.files.length) return;
-
-  preview.innerHTML = '';
-  preview.classList.add('d-none');
-
-  if (!fileId) return;
-
-  const img = document.createElement('img');
-  img.src = getDriveThumbnailUrl(fileId, 'w240');
-  img.alt = '';
-  preview.appendChild(img);
-  preview.classList.remove('d-none');
-}
-
-function onUploadFileChange() {
-  const fileInput = document.getElementById('uploadImageFile');
-  const nameInput = document.getElementById('uploadCastName');
-  const preview = document.getElementById('uploadPreview');
-  const file = fileInput.files && fileInput.files[0];
-
-  preview.innerHTML = '';
-  preview.classList.add('d-none');
-
-  if (!file) {
-    onRegisterImageInputChange();
-    return;
-  }
-
-  if (!nameInput.value.trim()) {
-    nameInput.value = stripExtension(file.name);
-  }
-
-  const img = document.createElement('img');
-  img.src = URL.createObjectURL(file);
-  img.alt = '';
-  img.onload = () => URL.revokeObjectURL(img.src);
-  preview.appendChild(img);
-  preview.classList.remove('d-none');
-}
-
-async function uploadImage() {
-  const nameInput = document.getElementById('uploadCastName');
-  const folderInput = document.getElementById('uploadFolderKey');
-  const localFileInput = document.getElementById('uploadImageFile');
-  const driveInput = document.getElementById('uploadFileIdOrUrl');
-  const name = nameInput.value.trim();
-  const file = localFileInput.files && localFileInput.files[0];
-  const fileIdOrUrl = driveInput.value.trim();
-
-  if (!name) {
-    showAlert('画像名を入力してください。', 'warning');
-    return;
-  }
-
-  if (file) {
-    if (!isAllowedUploadFile(file)) {
-      showAlert('JPEG / PNG / WebP / GIF の画像ファイルを選択してください。', 'warning');
-      return;
-    }
-    if (file.size > UPLOAD_MAX_FILE_BYTES) {
-      showAlert('画像サイズが大きすぎます。10MB以下にしてください。', 'warning');
-      return;
-    }
-  } else if (!extractDriveFileId(fileIdOrUrl)) {
-    showAlert('画像ファイルを選択してください。既存Drive画像を使う場合はファイルIDまたはURLを入力してください。', 'warning');
-    return;
-  }
-
-  try {
-    setProcessing(true, file ? '画像読み込み中' : '画像登録中');
-    let result;
-    if (file) {
-      const dataUrl = await readFileAsDataUrl(file);
-      setProcessing(true, '画像登録中');
-      result = await Api.post('uploadImage', {
-        name,
-        folderKey: folderInput.value,
-        fileName: file.name,
-        mimeType: file.type || getMimeTypeFromFileName(file.name),
-        dataUrl
-      }, 120000);
-    } else {
-      result = await Api.request('registerImage', {
-        name,
-        folderKey: folderInput.value,
-        fileIdOrUrl
-      });
-    }
-
-    localFileInput.value = '';
-    driveInput.value = '';
-    document.getElementById('uploadPreview').classList.add('d-none');
-    const folderName = result.folderName || result.folderLabel || '画像登録';
-    const displayName = result.fileName || result.name;
-    showAlert(`${folderName}として ${displayName} を画像登録しました。`, 'success');
-
-    setProcessing(true, '画像一覧更新中');
-    const store = document.getElementById('storePicker').value;
-    const date = document.getElementById('datePicker').value;
-    if (store && date) await refreshCurrentShift();
-  } catch (err) {
-    const message = getUploadErrorMessage(err);
-    showAlert(message, 'danger');
-  } finally {
-    setProcessing(false);
-  }
-}
-
-function getUploadErrorMessage(err) {
-  const message = err && err.message ? err.message : String(err || '');
-  if (/Unknown action: (registerImage|uploadImage|uploadImageFile|verifyImageUpload)/.test(message)) {
-    return 'Apps ScriptのWebアプリが古いです。clasp push後に新しいバージョンをデプロイしてください。';
-  }
-  return message;
-}
-
-function extractDriveFileId(value) {
-  const text = String(value || '').trim();
-  const fileMatch = text.match(/\/file\/d\/([A-Za-z0-9_-]+)/);
-  if (fileMatch) return fileMatch[1];
-  const idMatch = text.match(/[?&]id=([A-Za-z0-9_-]+)/);
-  if (idMatch) return idMatch[1];
-  const thumbnailMatch = text.match(/thumbnail\?id=([A-Za-z0-9_-]+)/);
-  if (thumbnailMatch) return thumbnailMatch[1];
-  return /^[A-Za-z0-9_-]{20,}$/.test(text) ? text : '';
-}
-
-function getDriveThumbnailUrl(fileId, size) {
-  return `https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId)}&sz=${encodeURIComponent(size || 'w240')}`;
-}
-
-function stripExtension(fileName) {
-  return String(fileName || '').replace(/\.[^.]+$/, '').trim();
-}
-
-function isAllowedUploadFile(file) {
-  if (!file) return false;
-  if (/^image\/(jpeg|png|webp|gif)$/.test(file.type || '')) return true;
-  return /\.(jpe?g|png|webp|gif)$/i.test(file.name || '');
-}
-
-function getMimeTypeFromFileName(fileName) {
-  const text = String(fileName || '').toLowerCase();
-  if (/\.png$/.test(text)) return 'image/png';
-  if (/\.webp$/.test(text)) return 'image/webp';
-  if (/\.gif$/.test(text)) return 'image/gif';
-  return 'image/jpeg';
-}
-
-function readFileAsDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(new Error('画像ファイルを読み取れませんでした。'));
-    reader.readAsDataURL(file);
-  });
 }
 
 async function exportImage() {

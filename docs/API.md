@@ -29,18 +29,6 @@ GAS_WEB_APP_URL
 {GAS_WEB_APP_URL}?action=getDateList&payload={...}&callback=callbackName
 ```
 
-### iframe postMessage POST
-
-画像アップロードなどURL長制限に当たる処理は、GitHub Pages から hidden iframe のフォームPOSTで送信します。Apps Script WebApp のCORS制約を避けるため、GASはHTMLレスポンス内の `postMessage` で親画面へ処理結果を返します。通常UIのローカル画像登録は、ブラウザでdataURL化して `uploadImage` へ送信します。
-
-```text
-action=uploadImage
-payload={"name":"あいな","folderKey":"osaka","fileName":"source.jpg","mimeType":"image/jpeg","dataUrl":"data:image/jpeg;base64,..."}
-responseMode=postMessage
-messageId=...
-parentOrigin=https://officialwork-design.github.io
-```
-
 ### パラメータ
 
 | パラメータ | 必須 | 内容 |
@@ -88,10 +76,6 @@ parentOrigin=https://officialwork-design.github.io
 | getImageList | 画像一覧・出勤/休み一覧取得 | 必須 |
 | updateShiftRows | 編集テーブルの一括保存 | 必須 |
 | setCastAbsent | 休み/出勤切替 | 必須 |
-| registerImage | 画像登録シートへのDrive画像登録 | 任意 |
-| uploadImage | Drive画像フォルダへの画像追加（通常UI） | 任意 |
-| uploadImageFile | Drive画像フォルダへの画像追加（multipart互換） | 任意 |
-| verifyImageUpload | 画像追加後のDrive反映確認 | 任意 |
 | refreshImageCache | Drive画像キャッシュ更新 | 任意 |
 | checkImages | 画像未登録チェック | 任意 |
 
@@ -312,140 +296,7 @@ https://drive.google.com/thumbnail?id={fileId}&sz=w600
 }
 ```
 
-## 13. registerImage
-
-### 用途
-
-既にDriveへ保存済みの画像を `画像登録` シートへ登録します。通常UIではローカルファイル選択による `uploadImage` を使用し、このAPIは既存Drive画像を後から登録する補助用です。
-
-登録シートの列は `名前 / ファイルID / ファイルURL / サムネイルURL / フォルダ名 / 更新日` です。
-
-### payload
-
-```json
-{
-  "name": "めう.jpeg",
-  "fileIdOrUrl": "https://drive.google.com/file/d/1x8GjrSXNH-XOYmWnbEZoeO9E_7DhxdVs/view?usp=drivesdk",
-  "folderKey": "tokyo"
-}
-```
-
-### data
-
-```json
-{
-  "success": true,
-  "name": "めう.jpeg",
-  "fileId": "1x8GjrSXNH-XOYmWnbEZoeO9E_7DhxdVs",
-  "fileUrl": "https://drive.google.com/file/d/1x8GjrSXNH-XOYmWnbEZoeO9E_7DhxdVs/view?usp=drivesdk",
-  "thumbnailUrl": "https://drive.google.com/thumbnail?id=1x8GjrSXNH-XOYmWnbEZoeO9E_7DhxdVs&sz=w1000",
-  "folderName": "東京",
-  "updatedAt": "2026/08/19",
-  "row": 2
-}
-```
-
-同じ `ファイルID` が既に登録されている場合は既存行を更新します。登録後は画像キャッシュを破棄し、`getImageList` の画像候補・自動照合に反映します。
-
-## 14. uploadImage / uploadImageFile
-
-### 用途
-
-GitHub Pages からローカル画像ファイルを追加し、選択したDrive画像フォルダへ保存します。
-
-通常UIではブラウザで画像をdataURL化し、`uploadImage` をiframe POSTで実行します。保存後はDriveフォルダにファイルを作成し、同じ内容を `画像登録` シートへ追記または更新します。`registerImage` は既存Drive画像のファイルID/URLを登録する補助用です。
-
-`uploadImageFile` は互換用に残していますが、GitHub PagesからApps Scriptへ送る `multipart/form-data` はファイル本体が `e.parameter` に入らないケースがあるため通常UIでは使用しません。保存ファイル名は `name + 元画像の拡張子` です。
-
-GitHub Pages から通常の `fetch POST` はCORSで失敗しやすいため使用しません。送信前にJSONPで `uploadImage` action の存在だけ確認し、`Unknown action: uploadImage` の場合は Apps Script の再デプロイが必要です。
-
-### payload（uploadImageFile）
-
-```text
-name=あいな
-folderKey=osaka
-fileName=source.jpg
-mimeType=image/jpeg
-imageFile=(binary)
-```
-
-### payload（uploadImage）
-
-```json
-{
-  "name": "あいな",
-  "folderKey": "osaka",
-  "fileName": "source.jpg",
-  "mimeType": "image/jpeg",
-  "dataUrl": "data:image/jpeg;base64,..."
-}
-```
-
-`folderKey`:
-
-| 値 | 保存先 |
-|---|---|
-| osaka | 大阪フォルダ |
-| tokyo | 東京フォルダ |
-
-### data
-
-```json
-{
-  "success": true,
-  "name": "あいな",
-  "fileName": "あいな.jpg",
-  "fileId": "drive-file-id",
-  "folderKey": "osaka",
-  "folderLabel": "大阪",
-  "imageUrl": "https://drive.google.com/thumbnail?id=drive-file-id&sz=w600",
-  "uploadLogSpreadsheetId": "1QivIBngvbskj7oNbToliE9_aq3Gke74VyrL37zU7qac",
-  "uploadLogSheetName": "画像保存記録"
-}
-```
-
-`uploadImage` はGASのHTMLレスポンスから `postMessage` で成否を受け取ります。送信後は `refreshImageCache` を呼ばず、`getImageList` をJSONPで再取得します。画像照合元は通常 `画像登録` シートのため、全Drive走査によるAPI timeoutを避けます。
-
-保存記録は `IMAGE_UPLOAD_LOG_SPREADSHEET_ID` のSpreadsheetに追記します。記録のみ失敗した場合はアップロードを成功扱いにし、`エラーログ` に記録します。
-
-## 15. verifyImageUpload
-
-### 用途
-
-選択フォルダに `name + 元画像の拡張子` の画像が存在するか確認します。
-
-アップロード前に既存の同名ファイルIDを取得し、アップロード後は `excludeFileIds` に渡すことで、新規追加されたファイルだけを成功判定に使います。
-
-### payload
-
-```json
-{
-  "name": "あいな",
-  "folderKey": "osaka",
-  "fileName": "source.jpg",
-  "mimeType": "image/jpeg",
-  "excludeFileIds": ["existing-drive-file-id"]
-}
-```
-
-### data
-
-```json
-{
-  "found": true,
-  "name": "あいな",
-  "fileName": "あいな.jpg",
-  "folderKey": "osaka",
-  "folderLabel": "大阪",
-  "folderId": "17zZbEhzgr3Fp_yfdox3zWLhO5kSUwvhZ",
-  "fileId": "new-drive-file-id",
-  "imageUrl": "https://drive.google.com/thumbnail?id=new-drive-file-id&sz=w600",
-  "matches": [],
-  "newMatches": []
-}
-```
-
-## 16. refreshImageCache
+## 13. refreshImageCache
 
 ### 用途
 
@@ -471,7 +322,7 @@ Google Driveの画像ファイル一覧を再取得し、キャッシュしま�
 }
 ```
 
-## 17. checkImages
+## 14. checkImages
 
 ### 用途
 
@@ -492,13 +343,13 @@ Google Driveの画像ファイル一覧を再取得し、キャッシュしま�
 }
 ```
 
-## 18. エラー処理
+## 15. エラー処理
 
 GAS側で例外が発生した場合、エラー内容を `エラーログ` シートへ保存します。
 
 フロント側では toast または alert で表示します。
 
-## 19. 注意事項
+## 16. 注意事項
 
 - GitHub Pages側に秘密情報は置かない。
 - GAS_WEB_APP_URLは公開前提で扱う。
