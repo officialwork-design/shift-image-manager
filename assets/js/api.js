@@ -1,13 +1,18 @@
 const Api = (() => {
   let seq = 0;
+  const CURRENT_GAS_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxN90blFI5qpAhRElqP2AaLkAU2cpe-UIuwMpkyF1lMUlcfDtfBJzpngkzfJZ1Qfxg/exec';
+  const RETIRED_GAS_DEPLOYMENT_IDS = [
+    'AKfycbyzPkF0QjFntEMFAdgZ9sbAId-fczgvuiNEVn13jWnXLB9z1GZSHMRUS6l6rISRGVuT'
+  ];
 
   function request(action, payload = {}) {
     const config = window.APP_CONFIG || {};
-    if (!config.GAS_WEB_APP_URL) {
+    const url = getGasWebAppUrl(config);
+    if (!url) {
       return Promise.reject(new Error('config.js の GAS_WEB_APP_URL が未設定です'));
     }
-    if (config.API_MODE === 'fetch') return fetchRequest(config.GAS_WEB_APP_URL, action, payload);
-    return jsonpRequest(config.GAS_WEB_APP_URL, action, payload);
+    if (config.API_MODE === 'fetch') return fetchRequest(url, action, payload);
+    return jsonpRequest(url, action, payload);
   }
 
   async function fetchRequest(url, action, payload, timeoutMs = 30000) {
@@ -31,18 +36,27 @@ const Api = (() => {
 
   function post(action, payload = {}, timeoutMs = 60000) {
     const config = window.APP_CONFIG || {};
-    if (!config.GAS_WEB_APP_URL) {
+    const url = getGasWebAppUrl(config);
+    if (!url) {
       return Promise.reject(new Error('config.js の GAS_WEB_APP_URL が未設定です'));
     }
-    return iframePostMessageRequest(config.GAS_WEB_APP_URL, action, payload, timeoutMs);
+    return iframePostMessageRequest(url, action, payload, timeoutMs);
   }
 
   function postFile(action, payload = {}, fileInput, timeoutMs = 60000) {
     const config = window.APP_CONFIG || {};
-    if (!config.GAS_WEB_APP_URL) {
+    const url = getGasWebAppUrl(config);
+    if (!url) {
       return Promise.reject(new Error('config.js の GAS_WEB_APP_URL が未設定です'));
     }
-    return iframePostMessageFileRequest(config.GAS_WEB_APP_URL, action, payload, fileInput, timeoutMs);
+    return iframePostMessageFileRequest(url, action, payload, fileInput, timeoutMs);
+  }
+
+  function getGasWebAppUrl(config) {
+    const configuredUrl = String((config && config.GAS_WEB_APP_URL) || '').trim();
+    if (!configuredUrl) return CURRENT_GAS_WEB_APP_URL;
+    const isRetired = RETIRED_GAS_DEPLOYMENT_IDS.some(id => configuredUrl.indexOf(id) !== -1);
+    return isRetired ? CURRENT_GAS_WEB_APP_URL : configuredUrl;
   }
 
   function jsonpRequest(url, action, payload) {
