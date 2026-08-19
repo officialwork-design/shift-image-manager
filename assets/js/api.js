@@ -81,9 +81,6 @@ const Api = (() => {
   }
 
   async function iframePostMessageRequest(url, action, payload, timeoutMs) {
-    const probe = await probeAction(url, action);
-    if (!probe.available) throw new Error(probe.message);
-
     return new Promise((resolve, reject) => {
       const messageId = `shiftUploadMessage_${Date.now()}_${seq++}`;
       const frameName = `shiftUploadFrame_${Date.now()}_${seq++}`;
