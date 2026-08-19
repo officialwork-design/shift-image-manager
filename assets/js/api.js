@@ -24,7 +24,11 @@ const Api = (() => {
   function jsonpRequest(url, action, payload) {
     return jsonpRequestScript(url, action, payload).catch((err) => {
       if (err && err.message === 'API script load error') {
-        return getRequest(url, action, payload);
+        return getRequest(url, action, payload).catch((fallbackErr) => {
+          const message = fallbackErr && fallbackErr.message ? fallbackErr.message : '';
+          if (message === 'Failed to fetch' || message === 'Load failed') throw err;
+          throw fallbackErr;
+        });
       }
       throw err;
     });
@@ -34,7 +38,7 @@ const Api = (() => {
     return new Promise((resolve, reject) => {
       const callbackName = `__shiftApiCallback_${Date.now()}_${seq++}`;
       const script = document.createElement('script');
-      const timer = setTimeout(() => cleanup(new Error('API timeout')), 30000);
+      const timer = setTimeout(() => cleanup(new Error('API timeout')), 60000);
 
       window[callbackName] = (data) => {
         if (!data || !data.success) cleanup(new Error((data && data.message) || 'API error'));
