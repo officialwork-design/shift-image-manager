@@ -22,6 +22,15 @@ const Api = (() => {
   }
 
   function jsonpRequest(url, action, payload) {
+    return jsonpRequestScript(url, action, payload).catch((err) => {
+      if (err && err.message === 'API script load error') {
+        return getRequest(url, action, payload);
+      }
+      throw err;
+    });
+  }
+
+  function jsonpRequestScript(url, action, payload) {
     return new Promise((resolve, reject) => {
       const callbackName = `__shiftApiCallback_${Date.now()}_${seq++}`;
       const script = document.createElement('script');
@@ -48,6 +57,27 @@ const Api = (() => {
       script.src = `${url}?${params.toString()}`;
       document.body.appendChild(script);
     });
+  }
+
+  async function getRequest(url, action, payload) {
+    const callbackName = `__shiftFetchCallback_${Date.now()}_${seq++}`;
+    const params = new URLSearchParams({
+      action,
+      payload: JSON.stringify(payload),
+      callback: callbackName
+    });
+    const res = await fetch(`${url}?${params.toString()}`);
+    const text = await res.text();
+    if (/^\s*</.test(text)) throw new Error('API script load error');
+    const prefix = `${callbackName}(`;
+    const suffix = ');';
+    const trimmed = text.trim();
+    const jsonText = trimmed.indexOf(prefix) === 0 && trimmed.slice(-suffix.length) === suffix
+      ? trimmed.slice(prefix.length, -suffix.length)
+      : trimmed;
+    const data = JSON.parse(jsonText);
+    if (!data.success) throw new Error(data.message || 'API error');
+    return data.data;
   }
 
   return { request };
