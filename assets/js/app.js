@@ -19,7 +19,6 @@ const WORK_TIME_OPTIONS = [
 ];
 
 const SHIFT_STATUSES = ['出勤', '休み'];
-const UPLOAD_MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 // キャスト名 → SNS ID（表示は「名前 @id」、保存値は名前のみ）
 const CAST_OPTIONS = {
@@ -139,7 +138,7 @@ function bindEvents() {
   document.getElementById('checkButton').addEventListener('click', checkImages);
   document.getElementById('exportButton').addEventListener('click', exportImage);
   document.getElementById('uploadImageButton').addEventListener('click', uploadImage);
-  document.getElementById('uploadImageFile').addEventListener('change', onUploadFileChange);
+  document.getElementById('uploadFileIdOrUrl').addEventListener('input', onRegisterImageInputChange);
   document.getElementById('siftPreviewSelect').addEventListener('change', onPreviewChange);
   document.getElementById('resetFromSourceButton').addEventListener('click', resetFromSource);
 
@@ -821,84 +820,53 @@ async function checkImages() {
   }
 }
 
-function onUploadFileChange() {
-  const fileInput = document.getElementById('uploadImageFile');
-  const nameInput = document.getElementById('uploadCastName');
+function onRegisterImageInputChange() {
+  const input = document.getElementById('uploadFileIdOrUrl');
   const preview = document.getElementById('uploadPreview');
-  const file = fileInput.files && fileInput.files[0];
+  const fileId = extractDriveFileId(input.value);
 
   preview.innerHTML = '';
   preview.classList.add('d-none');
 
-  if (!file) return;
+  if (!fileId) return;
 
-  if (!nameInput.value.trim()) {
-    nameInput.value = stripExtension(file.name);
-  }
-
-  if (file.type && file.type.indexOf('image/') === 0) {
-    const url = URL.createObjectURL(file);
-    const img = document.createElement('img');
-    img.src = url;
-    img.alt = '';
-    img.onload = () => URL.revokeObjectURL(url);
-    preview.appendChild(img);
-    preview.classList.remove('d-none');
-  }
+  const img = document.createElement('img');
+  img.src = getDriveThumbnailUrl(fileId, 'w240');
+  img.alt = '';
+  preview.appendChild(img);
+  preview.classList.remove('d-none');
 }
 
 async function uploadImage() {
   const nameInput = document.getElementById('uploadCastName');
   const folderInput = document.getElementById('uploadFolderKey');
-  const fileInput = document.getElementById('uploadImageFile');
-  const file = fileInput.files && fileInput.files[0];
+  const fileInput = document.getElementById('uploadFileIdOrUrl');
   const name = nameInput.value.trim();
+  const fileIdOrUrl = fileInput.value.trim();
 
   if (!name) {
     showAlert('画像名を入力してください。', 'warning');
     return;
   }
-  if (!file) {
-    showAlert('追加する画像ファイルを選択してください。', 'warning');
-    return;
-  }
-  if (!file.type || file.type.indexOf('image/') !== 0) {
-    showAlert('画像ファイルを選択してください。', 'warning');
-    return;
-  }
-  if (file.size > UPLOAD_MAX_FILE_BYTES) {
-    showAlert('画像サイズが大きすぎます。10MB以下の画像を選択してください。', 'warning');
+  if (!extractDriveFileId(fileIdOrUrl)) {
+    showAlert('DriveファイルIDまたはURLを入力してください。', 'warning');
     return;
   }
 
   try {
-    const uploadPayload = {
+    const payload = {
       name,
       folderKey: folderInput.value,
-      fileName: file.name,
-      mimeType: file.type
+      fileIdOrUrl
     };
-    setProcessing(true, '画像追加準備中');
-    const beforeUpload = await Api.request('verifyImageUpload', uploadPayload);
-    const existingFileIds = (beforeUpload.matches || []).map(item => item.fileId);
-
-    setProcessing(true, '画像追加中');
-    const dataUrl = await readFileAsDataUrl(file);
-    await Api.post('uploadImage', Object.assign({}, uploadPayload, { dataUrl }), 90000);
-
-    setProcessing(true, '画像反映確認中');
-    const verified = await waitForUploadedImage(uploadPayload, existingFileIds);
-    if (!verified || !verified.found) {
-      throw new Error('Driveフォルダに画像が追加されませんでした。Apps Scriptのデプロイ版、実行履歴、エラーログを確認してください。');
-    }
+    setProcessing(true, '画像登録中');
+    const result = await Api.request('registerImage', payload);
 
     fileInput.value = '';
     document.getElementById('uploadPreview').classList.add('d-none');
-    showAlert(`${verified.folderLabel}フォルダに ${verified.fileName} を追加しました。`, 'success');
+    showAlert(`${result.folderName}として ${result.name} を画像登録しました。`, 'success');
 
     setProcessing(true, '画像一覧更新中');
-    await Api.request('refreshImageCache');
-
     const store = document.getElementById('storePicker').value;
     const date = document.getElementById('datePicker').value;
     if (store && date) await refreshCurrentShift();
@@ -912,42 +880,25 @@ async function uploadImage() {
 
 function getUploadErrorMessage(err) {
   const message = err && err.message ? err.message : String(err || '');
-  if (err && err.name === 'AbortError') {
-    return '画像追加がタイムアウトしました。画像サイズを小さくして再試行してください。';
-  }
-  if (/Unknown action: (uploadImage|verifyImageUpload)/.test(message)) {
+  if (/Unknown action: (registerImage|uploadImage|uploadImageFile|verifyImageUpload)/.test(message)) {
     return 'Apps ScriptのWebアプリが古いです。clasp push後に新しいバージョンをデプロイしてください。';
   }
   return message;
 }
 
-function readFileAsDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error('画像ファイルを読み取れません'));
-    reader.readAsDataURL(file);
-  });
+function extractDriveFileId(value) {
+  const text = String(value || '').trim();
+  const fileMatch = text.match(/\/file\/d\/([A-Za-z0-9_-]+)/);
+  if (fileMatch) return fileMatch[1];
+  const idMatch = text.match(/[?&]id=([A-Za-z0-9_-]+)/);
+  if (idMatch) return idMatch[1];
+  const thumbnailMatch = text.match(/thumbnail\?id=([A-Za-z0-9_-]+)/);
+  if (thumbnailMatch) return thumbnailMatch[1];
+  return /^[A-Za-z0-9_-]{20,}$/.test(text) ? text : '';
 }
 
-async function waitForUploadedImage(payload, existingFileIds) {
-  let result = null;
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    if (attempt > 0) await wait(1500);
-    result = await Api.request('verifyImageUpload', Object.assign({}, payload, {
-      excludeFileIds: existingFileIds || []
-    }));
-    if (result.found) return result;
-  }
-  return result;
-}
-
-function wait(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function stripExtension(fileName) {
-  return String(fileName || '').replace(/\.[^/.]+$/, '').trim();
+function getDriveThumbnailUrl(fileId, size) {
+  return `https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId)}&sz=${encodeURIComponent(size || 'w240')}`;
 }
 
 async function exportImage() {

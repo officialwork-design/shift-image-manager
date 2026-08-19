@@ -51,6 +51,7 @@ const SpreadsheetService = {
     this.ensureOperationLogSheet_(spreadsheet, config, createdSheets);
     this.ensureImageCheckSheet_(spreadsheet, config, createdSheets);
     this.ensureErrorLogSheet_(spreadsheet, config, createdSheets);
+    this.ensureImageRegistrySheet_(spreadsheet, config, createdSheets);
 
     return {
       success: true,
@@ -63,7 +64,8 @@ const SpreadsheetService = {
         config.SHEET_SIFT_DATA,
         config.SHEET_OPERATION_LOG,
         config.SHEET_IMAGE_CHECK,
-        config.SHEET_ERROR_LOG
+        config.SHEET_ERROR_LOG,
+        config.SHEET_IMAGE_REGISTRY
       ].filter(Boolean)
     };
   },
@@ -130,6 +132,11 @@ const SpreadsheetService = {
     this.ensureHeaders_(sheet, ['日時', 'action', 'message', 'stack', 'payload', 'userAgent']);
   },
 
+  ensureImageRegistrySheet_(spreadsheet, config, createdSheets) {
+    const sheet = this.ensureSheet_(spreadsheet, config.SHEET_IMAGE_REGISTRY, createdSheets);
+    this.ensureHeaders_(sheet, IMAGE_REGISTRY_HEADERS);
+  },
+
   appendMissingConfigRows_(sheet, rows) {
     const lastRow = sheet.getLastRow();
     const existingKeys = {};
@@ -166,8 +173,10 @@ const SpreadsheetService = {
       ['SHEET_OPERATION_LOG', config.SHEET_OPERATION_LOG || DEFAULT_CONFIG.SHEET_OPERATION_LOG, 'sheet', '操作ログシート名', 'false', now, ''],
       ['SHEET_IMAGE_CHECK', config.SHEET_IMAGE_CHECK || DEFAULT_CONFIG.SHEET_IMAGE_CHECK, 'sheet', '画像チェックシート名', 'false', now, ''],
       ['SHEET_ERROR_LOG', config.SHEET_ERROR_LOG || DEFAULT_CONFIG.SHEET_ERROR_LOG, 'sheet', 'エラーログシート名', 'false', now, ''],
+      ['SHEET_IMAGE_REGISTRY', config.SHEET_IMAGE_REGISTRY || DEFAULT_CONFIG.SHEET_IMAGE_REGISTRY, 'sheet', '画像登録シート名', 'true', now, '名前 / ファイルID / ファイルURL / サムネイルURL / フォルダ名 / 更新日'],
       ['TIMEZONE', config.TIMEZONE || DEFAULT_CONFIG.TIMEZONE, 'text', 'タイムゾーン', 'false', now, ''],
-      ['APP_MODE', config.APP_MODE || DEFAULT_CONFIG.APP_MODE, 'text', '動作モード', 'true', now, '']
+      ['APP_MODE', config.APP_MODE || DEFAULT_CONFIG.APP_MODE, 'text', '動作モード', 'true', now, ''],
+      ['ENABLE_DRIVE_IMAGE_SCAN', config.ENABLE_DRIVE_IMAGE_SCAN || DEFAULT_CONFIG.ENABLE_DRIVE_IMAGE_SCAN, 'boolean', '画像登録シートに加えてDriveフォルダを全走査する場合のみtrue', 'true', now, '通常はfalse']
     ];
   }
 };

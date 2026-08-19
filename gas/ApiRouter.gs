@@ -25,6 +25,7 @@ const ApiRouter = {
 
   parseRequest(e, isJsonp) {
     const params = e && e.parameter ? e.parameter : {};
+    const multiParams = e && e.parameters ? e.parameters : {};
     if (isJsonp) {
       return {
         action: String(params.action || '').trim(),
@@ -32,15 +33,21 @@ const ApiRouter = {
       };
     }
 
-    const body = e && e.postData && e.postData.contents ? e.postData.contents : '{}';
-    const request = Utils.parseJson(body, {});
+    const body = e && e.postData && e.postData.contents ? e.postData.contents : '';
+    const request = this.parseJsonBody_(body);
     if (!request.action) {
-      const form = this.parseFormBody_(body);
+      const form = this.getFormBodyValues_(e);
       const payloadText = params.payload || form.payload || '';
       request.action = String(params.action || form.action || '').trim();
-      request.payload = payloadText ? Utils.parseJson(payloadText, {}) : {};
+      request.payload = payloadText ? Utils.parseJson(payloadText, {}) : this.getParameterPayload_(params, form, multiParams);
     }
     return request;
+  },
+
+  parseJsonBody_(body) {
+    const text = String(body || '').trim();
+    if (!text || (text.charAt(0) !== '{' && text.charAt(0) !== '[')) return {};
+    return Utils.parseJson(text, {});
   },
 
   route(action, payload) {
@@ -65,8 +72,12 @@ const ApiRouter = {
         return ImageService.checkImages();
       case 'uploadImage':
         return ImageService.uploadImage(payload || {});
+      case 'uploadImageFile':
+        return ImageService.uploadImageFile(payload || {});
       case 'verifyImageUpload':
         return ImageService.verifyImageUpload(payload || {});
+      case 'registerImage':
+        return ImageService.registerImage(payload || {});
       default:
         throw new Error('Unknown action: ' + action);
     }
@@ -81,13 +92,47 @@ const ApiRouter = {
 
   getResponseOptions_(e) {
     const params = e && e.parameter ? e.parameter : {};
-    const body = e && e.postData && e.postData.contents ? e.postData.contents : '';
-    const form = this.parseFormBody_(body);
+    const multiParams = e && e.parameters ? e.parameters : {};
+    const form = this.getFormBodyValues_(e);
     return {
-      responseMode: String(params.responseMode || form.responseMode || '').trim(),
-      messageId: String(params.messageId || form.messageId || '').trim(),
-      parentOrigin: String(params.parentOrigin || form.parentOrigin || '').trim()
+      responseMode: String(params.responseMode || form.responseMode || this.firstParameter_(multiParams.responseMode) || '').trim(),
+      messageId: String(params.messageId || form.messageId || this.firstParameter_(multiParams.messageId) || '').trim(),
+      parentOrigin: String(params.parentOrigin || form.parentOrigin || this.firstParameter_(multiParams.parentOrigin) || '').trim()
     };
+  },
+
+  getFormBodyValues_(e) {
+    const postData = e && e.postData ? e.postData : {};
+    const type = String(postData.type || '').toLowerCase();
+    const body = String(postData.contents || '');
+    const looksUrlEncoded = /^[A-Za-z0-9_.~-]+=/.test(body);
+    if (type.indexOf('application/x-www-form-urlencoded') === -1 && !looksUrlEncoded) return {};
+    return this.parseFormBody_(body);
+  },
+
+  getParameterPayload_(params, form, multiParams) {
+    const ignored = {
+      action: true,
+      callback: true,
+      payload: true,
+      responseMode: true,
+      messageId: true,
+      parentOrigin: true
+    };
+    const payload = {};
+
+    [form || {}, params || {}, multiParams || {}].forEach(source => {
+      Object.keys(source).forEach(key => {
+        if (ignored[key]) return;
+        payload[key] = this.firstParameter_(source[key]);
+      });
+    });
+
+    return payload;
+  },
+
+  firstParameter_(value) {
+    return Array.isArray(value) ? value[0] : value;
   },
 
   parseFormBody_(body) {
@@ -122,6 +167,9 @@ const ApiRouter = {
     const safePayload = Object.assign({}, request && request.payload ? request.payload : {});
     if (safePayload.dataUrl) {
       safePayload.dataUrl = '[omitted dataUrl length=' + String(request.payload.dataUrl).length + ']';
+    }
+    if (safePayload.imageFile) {
+      safePayload.imageFile = '[uploaded image file]';
     }
     return {
       action: request && request.action ? request.action : '',

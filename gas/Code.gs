@@ -30,6 +30,7 @@ const DEFAULT_CONFIG = {
   SHEET_OPERATION_LOG: '画像操作ログ',
   SHEET_IMAGE_CHECK: '画像チェック',
   SHEET_ERROR_LOG: 'エラーログ',
+  SHEET_IMAGE_REGISTRY: '画像登録',
   DRIVE_IMAGE_FOLDER_ID: '1Ob0yiSr0yP_sHa72t9xg8xmGn5YEUYR-',
   DRIVE_IMAGE_FOLDER_IDS: '17zZbEhzgr3Fp_yfdox3zWLhO5kSUwvhZ',
   IMAGE_UPLOAD_LOG_SPREADSHEET_ID: '1QivIBngvbskj7oNbToliE9_aq3Gke74VyrL37zU7qac',
@@ -37,8 +38,11 @@ const DEFAULT_CONFIG = {
   DRIVE_OUTPUT_FOLDER_ID: '',
   TIMEZONE: 'Asia/Tokyo',
   APP_MODE: 'production',
-  IMAGE_CACHE_SECONDS: 600
+  IMAGE_CACHE_SECONDS: 600,
+  ENABLE_DRIVE_IMAGE_SCAN: 'false'
 };
+
+const IMAGE_REGISTRY_HEADERS = ['名前', 'ファイルID', 'ファイルURL', 'サムネイルURL', 'フォルダ名', '更新日'];
 
 const SHEET_LAYOUT = {
   CAST_START_ROW: 3,

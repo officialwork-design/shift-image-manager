@@ -10,10 +10,11 @@ const ImageService = {
     const data = this.getDriveImagesRaw_();
     const imageCount = data.imageFiles ? data.imageFiles.length : Object.keys(data.imageMap).length;
     CacheService.getScriptCache().put(IMAGE_CACHE_KEY, JSON.stringify(data), Number(config.IMAGE_CACHE_SECONDS || DEFAULT_CONFIG.IMAGE_CACHE_SECONDS));
-    LogService.operation('画像キャッシュ更新', '', '', '', '', 'imageCount=' + imageCount + ', folderCount=' + data.folderCount, '成功');
+    LogService.operation('画像キャッシュ更新', '', '', '', '', 'imageCount=' + imageCount + ', registryCount=' + (data.registryCount || 0) + ', folderCount=' + data.folderCount, '成功');
     return {
       success: true,
       imageCount,
+      registryCount: data.registryCount || 0,
       hasPreparingImage: !!data.preparingImageId,
       folderCount: data.folderCount,
       fileCount: data.fileCount,
@@ -73,37 +74,50 @@ const ImageService = {
     const extension = this.getUploadExtension_(payload.fileName, parsed.mimeType);
     const fileName = castName + extension;
     const blob = Utilities.newBlob(bytes, parsed.mimeType, fileName);
-    const file = DriveApp.getFolderById(target.folderId).createFile(blob);
-    file.setName(fileName);
-    const fileId = file.getId();
-    const imageUrl = this.getThumbnailUrl(fileId, 'w600');
-
-    CacheService.getScriptCache().remove(IMAGE_CACHE_KEY);
-    LogService.operation('画像追加', '', '', castName, '', target.label + ' / ' + fileName, '成功', fileId);
-    const uploadLogConfig = this.getUploadLogConfig_();
-    this.writeUploadLogSafely_({
-      castName,
-      target,
-      fileName,
-      fileId,
-      imageUrl,
+    return this.saveUploadedImage_(target, castName, fileName, blob, {
       sourceFileName: payload.fileName || '',
       mimeType: parsed.mimeType,
-      sizeBytes: bytes.length,
-      uploadLogConfig
+      sizeBytes: bytes.length
     });
+  },
 
-    return {
-      success: true,
-      name: castName,
-      fileName,
-      fileId,
-      folderKey: target.key,
-      folderLabel: target.label,
-      imageUrl,
-      uploadLogSpreadsheetId: uploadLogConfig.spreadsheetId,
-      uploadLogSheetName: uploadLogConfig.sheetName
-    };
+  uploadImageFile(payload) {
+    if (payload && payload.__probe) {
+      return { available: true, action: 'uploadImageFile' };
+    }
+
+    const target = this.getUploadTarget_(payload.folderKey);
+    const castName = this.sanitizeUploadName_(payload.name);
+    if (!castName) throw new Error('画像名を入力してください');
+
+    const sourceBlob = this.getUploadBlob_(payload);
+    const mimeType = String(payload.mimeType || sourceBlob.getContentType() || '').toLowerCase();
+    if (!this.isAllowedUploadMimeType_(mimeType)) {
+      throw new Error('画像ファイルを選択してください');
+    }
+
+    const bytes = sourceBlob.getBytes();
+    if (bytes.length > IMAGE_UPLOAD_MAX_BYTES) {
+      throw new Error('画像サイズが大きすぎます。10MB以下にしてください');
+    }
+
+    const sourceFileName = payload.fileName || this.getBlobName_(sourceBlob);
+    const extension = this.getUploadExtension_(sourceFileName, mimeType);
+    const fileName = castName + extension;
+    const blob = Utilities.newBlob(bytes, mimeType, fileName);
+    return this.saveUploadedImage_(target, castName, fileName, blob, {
+      sourceFileName,
+      mimeType,
+      sizeBytes: bytes.length
+    });
+  },
+
+  registerImage(payload) {
+    const record = this.normalizeImageRegistryPayload_(payload);
+    const result = this.upsertImageRegistryRecord_(record);
+    CacheService.getScriptCache().remove(IMAGE_CACHE_KEY);
+    LogService.operation('画像登録', '', '', record.name, '', record.folderName + ' / ' + record.fileId, '成功');
+    return Object.assign({ success: true }, result);
   },
 
   verifyImageUpload(payload) {
@@ -191,33 +205,43 @@ const ImageService = {
 
   getDriveImagesRaw_() {
     const config = ConfigService.getConfig();
-    const folderIds = this.getImageFolderIds_(config);
+    const enableDriveScan = Utils.toBoolean(config.ENABLE_DRIVE_IMAGE_SCAN);
+    const folderIds = enableDriveScan ? this.getImageFolderIds_(config) : [];
     const imageMap = {};
     const state = { preparingImageId: '', imageFiles: [], imageFileIds: {} };
     const folderErrors = [];
     const rootErrors = [];
     const seenFolders = {};
     const stats = { folderCount: 0, fileCount: 0 };
+    const registryRows = this.readImageRegistryRows_(config);
 
-    folderIds.forEach(folderId => {
-      try {
-        const folder = DriveApp.getFolderById(folderId);
-        this.scanImageFolder_(folder, imageMap, state, folderErrors, seenFolders, stats, 0);
-      } catch (err) {
-        rootErrors.push({ folderId, message: Utils.errorMessage(err) });
-        folderErrors.push({ folderId, message: Utils.errorMessage(err) });
-        LogService.error('ImageService.getDriveImagesRaw', err, { folderId });
-      }
+    registryRows.forEach(record => {
+      this.addRegisteredImage_(record, imageMap, state);
     });
 
-    if (folderIds.length && rootErrors.length === folderIds.length) {
-      throw new Error('画像フォルダを読み込めません: ' + rootErrors.map(item => item.folderId).join(', '));
+    if (enableDriveScan) {
+      folderIds.forEach(folderId => {
+        try {
+          const folder = DriveApp.getFolderById(folderId);
+          this.scanImageFolder_(folder, imageMap, state, folderErrors, seenFolders, stats, 0);
+        } catch (err) {
+          rootErrors.push({ folderId, message: Utils.errorMessage(err) });
+          folderErrors.push({ folderId, message: Utils.errorMessage(err) });
+          LogService.error('ImageService.getDriveImagesRaw', err, { folderId });
+        }
+      });
+
+      if (folderIds.length && rootErrors.length === folderIds.length) {
+        throw new Error('画像フォルダを読み込めません: ' + rootErrors.map(item => item.folderId).join(', '));
+      }
     }
 
     return {
       imageMap,
       preparingImageId: state.preparingImageId,
       imageFiles: state.imageFiles,
+      registryCount: registryRows.length,
+      driveScanEnabled: enableDriveScan,
       folderIds,
       folderErrors,
       folderCount: stats.folderCount,
@@ -267,6 +291,34 @@ const ImageService = {
       state.imageFiles.push({
         fileId,
         name: baseName
+      });
+    }
+
+    keys.forEach(key => this.setImageMapKey_(imageMap, key, fileId));
+  },
+
+  addRegisteredImage_(record, imageMap, state) {
+    const fileId = String(record.fileId || '').trim();
+    if (!fileId) return;
+
+    const baseName = Utils.stripExtension(record.name || '').trim();
+    const keys = this.getImageNameKeys_(baseName);
+    if (keys.indexOf('準備中') !== -1) {
+      if (!state.preparingImageId) state.preparingImageId = fileId;
+      return;
+    }
+
+    if (!state.imageFileIds[fileId]) {
+      state.imageFileIds[fileId] = true;
+      state.imageFiles.push({
+        fileId,
+        name: baseName,
+        fileName: record.name,
+        fileUrl: record.fileUrl,
+        imageUrl: record.thumbnailUrl,
+        folderName: record.folderName,
+        updatedAt: record.updatedAt,
+        source: 'registry'
       });
     }
 
@@ -342,6 +394,201 @@ const ImageService = {
       .map(value => this.extractFolderId_(value))
       .filter(Boolean);
     return folderIds.indexOf(OSAKA_IMAGE_FOLDER_ID) !== -1 ? OSAKA_IMAGE_FOLDER_ID : (folderIds[0] || OSAKA_IMAGE_FOLDER_ID);
+  },
+
+  saveUploadedImage_(target, castName, fileName, blob, meta) {
+    const file = DriveApp.getFolderById(target.folderId).createFile(blob);
+    file.setName(fileName);
+    const fileId = file.getId();
+    const imageUrl = this.getThumbnailUrl(fileId, 'w600');
+
+    CacheService.getScriptCache().remove(IMAGE_CACHE_KEY);
+    LogService.operation('画像追加', '', '', castName, '', target.label + ' / ' + fileName, '成功', fileId);
+    this.writeImageRegistrySafely_({
+      name: fileName,
+      fileId,
+      fileUrl: this.getDriveFileUrl_(fileId),
+      thumbnailUrl: this.getThumbnailUrl(fileId, 'w1000'),
+      folderName: target.label,
+      updatedAt: Utils.now('yyyy/MM/dd')
+    });
+    const uploadLogConfig = this.getUploadLogConfig_();
+    this.writeUploadLogSafely_({
+      castName,
+      target,
+      fileName,
+      fileId,
+      imageUrl,
+      sourceFileName: meta.sourceFileName || '',
+      mimeType: meta.mimeType || '',
+      sizeBytes: meta.sizeBytes || '',
+      uploadLogConfig
+    });
+
+    return {
+      success: true,
+      name: castName,
+      fileName,
+      fileId,
+      folderKey: target.key,
+      folderLabel: target.label,
+      imageUrl,
+      uploadLogSpreadsheetId: uploadLogConfig.spreadsheetId,
+      uploadLogSheetName: uploadLogConfig.sheetName
+    };
+  },
+
+  getUploadBlob_(payload) {
+    const candidates = [payload.imageFile, payload.file, payload.uploadFile];
+    for (let i = 0; i < candidates.length; i += 1) {
+      const value = Array.isArray(candidates[i]) ? candidates[i][0] : candidates[i];
+      if (value && typeof value.getBytes === 'function') return value;
+    }
+    throw new Error('画像ファイルを受信できませんでした');
+  },
+
+  getBlobName_(blob) {
+    try {
+      return blob.getName();
+    } catch (err) {
+      return '';
+    }
+  },
+
+  normalizeImageRegistryPayload_(payload) {
+    const name = String(payload.name || payload.fileName || '').trim();
+    if (!name) throw new Error('画像名を入力してください');
+
+    const fileId = this.extractFileId_(payload.fileId || payload.fileIdOrUrl || payload.fileUrl || payload.url || '');
+    if (!fileId) throw new Error('DriveファイルIDまたはURLを入力してください');
+
+    const folderName = this.getFolderLabel_(payload.folderKey || payload.folderName);
+    return {
+      name,
+      fileId,
+      fileUrl: String(payload.fileUrl || '').trim() || this.getDriveFileUrl_(fileId),
+      thumbnailUrl: String(payload.thumbnailUrl || '').trim() || this.getThumbnailUrl(fileId, 'w1000'),
+      folderName,
+      updatedAt: Utils.now('yyyy/MM/dd')
+    };
+  },
+
+  getFolderLabel_(value) {
+    const text = String(value || '').trim();
+    const key = text.toLowerCase();
+    if (key === 'tokyo') return '東京';
+    if (key === 'osaka') return '大阪';
+    return text || '未設定';
+  },
+
+  upsertImageRegistryRecord_(record) {
+    const config = ConfigService.getConfig();
+    const sheet = SpreadsheetService.getOrCreateSheet(config.SHEET_IMAGE_REGISTRY || DEFAULT_CONFIG.SHEET_IMAGE_REGISTRY);
+    this.ensureImageRegistryHeader_(sheet);
+
+    const row = [
+      record.name,
+      record.fileId,
+      record.fileUrl,
+      record.thumbnailUrl,
+      record.folderName,
+      record.updatedAt
+    ];
+    const existingRow = this.findImageRegistryRow_(sheet, record.fileId);
+
+    if (existingRow) {
+      sheet.getRange(existingRow, 1, 1, IMAGE_REGISTRY_HEADERS.length).setValues([row]);
+    } else {
+      sheet.getRange(sheet.getLastRow() + 1, 1, 1, IMAGE_REGISTRY_HEADERS.length).setValues([row]);
+    }
+
+    return {
+      name: record.name,
+      fileId: record.fileId,
+      fileUrl: record.fileUrl,
+      thumbnailUrl: record.thumbnailUrl,
+      folderName: record.folderName,
+      updatedAt: record.updatedAt,
+      row: existingRow || sheet.getLastRow()
+    };
+  },
+
+  writeImageRegistrySafely_(record) {
+    try {
+      this.upsertImageRegistryRecord_(record);
+    } catch (err) {
+      LogService.error('ImageService.writeImageRegistry', err, { fileId: record.fileId, name: record.name });
+    }
+  },
+
+  findImageRegistryRow_(sheet, fileId) {
+    const target = String(fileId || '').trim();
+    if (!target || sheet.getLastRow() < 2) return 0;
+
+    const values = sheet.getRange(2, 2, sheet.getLastRow() - 1, 1).getDisplayValues();
+    for (let i = 0; i < values.length; i += 1) {
+      if (String(values[i][0] || '').trim() === target) return i + 2;
+    }
+    return 0;
+  },
+
+  readImageRegistryRows_(config) {
+    const sheetName = config.SHEET_IMAGE_REGISTRY || DEFAULT_CONFIG.SHEET_IMAGE_REGISTRY;
+    try {
+      const sheet = SpreadsheetService.getSpreadsheet().getSheetByName(sheetName);
+      if (!sheet) return [];
+      this.ensureImageRegistryHeader_(sheet);
+      if (sheet.getLastRow() < 2) return [];
+
+      return sheet.getRange(2, 1, sheet.getLastRow() - 1, IMAGE_REGISTRY_HEADERS.length)
+        .getDisplayValues()
+        .map(row => this.normalizeImageRegistryRow_(row))
+        .filter(record => record.name && record.fileId);
+    } catch (err) {
+      LogService.error('ImageService.readImageRegistryRows', err, { sheetName });
+      return [];
+    }
+  },
+
+  normalizeImageRegistryRow_(row) {
+    const fileId = this.extractFileId_(row[1] || row[2] || row[3] || '');
+    return {
+      name: String(row[0] || '').trim(),
+      fileId,
+      fileUrl: String(row[2] || '').trim() || (fileId ? this.getDriveFileUrl_(fileId) : ''),
+      thumbnailUrl: String(row[3] || '').trim() || (fileId ? this.getThumbnailUrl(fileId, 'w1000') : ''),
+      folderName: String(row[4] || '').trim(),
+      updatedAt: String(row[5] || '').trim()
+    };
+  },
+
+  ensureImageRegistryHeader_(sheet) {
+    if (sheet.getMaxColumns() < IMAGE_REGISTRY_HEADERS.length) {
+      sheet.insertColumnsAfter(sheet.getMaxColumns(), IMAGE_REGISTRY_HEADERS.length - sheet.getMaxColumns());
+    }
+    const current = sheet.getRange(1, 1, 1, IMAGE_REGISTRY_HEADERS.length).getDisplayValues()[0];
+    const hasHeader = current.some(value => String(value || '').trim());
+    if (!hasHeader) {
+      sheet.getRange(1, 1, 1, IMAGE_REGISTRY_HEADERS.length).setValues([IMAGE_REGISTRY_HEADERS]);
+      sheet.setFrozenRows(1);
+    }
+  },
+
+  extractFileId_(value) {
+    const text = String(value || '').trim();
+    if (!text) return '';
+    const fileMatch = text.match(/\/file\/d\/([A-Za-z0-9_-]+)/);
+    if (fileMatch) return fileMatch[1];
+    const idMatch = text.match(/[?&]id=([A-Za-z0-9_-]+)/);
+    if (idMatch) return idMatch[1];
+    const thumbnailMatch = text.match(/thumbnail\?id=([A-Za-z0-9_-]+)/);
+    if (thumbnailMatch) return thumbnailMatch[1];
+    const bareMatch = text.match(/^[A-Za-z0-9_-]{20,}$/);
+    return bareMatch ? text : '';
+  },
+
+  getDriveFileUrl_(fileId) {
+    return 'https://drive.google.com/file/d/' + encodeURIComponent(fileId) + '/view?usp=drivesdk';
   },
 
   writeUploadLogSafely_(record) {
@@ -510,7 +757,10 @@ const ImageService = {
       .map(file => ({
         fileId: file.fileId,
         name: file.name,
-        imageUrl: this.getThumbnailUrl(file.fileId, size || 'w120')
+        imageUrl: file.imageUrl || this.getThumbnailUrl(file.fileId, size || 'w120'),
+        fileUrl: file.fileUrl || this.getDriveFileUrl_(file.fileId),
+        folderName: file.folderName || '',
+        source: file.source || 'drive'
       }))
       .sort((a, b) => a.name.localeCompare(b.name, 'ja'));
   },
@@ -528,6 +778,14 @@ const ImageService = {
     const imageFiles = imageData && Array.isArray(imageData.imageFiles) ? imageData.imageFiles : [];
     const found = imageFiles.find(file => file.fileId === target);
     return found ? found.name : '';
+  },
+
+  getImageUrlForFileId(imageData, fileId, size) {
+    const target = String(fileId || '').trim();
+    if (!target) return '';
+    const imageFiles = imageData && Array.isArray(imageData.imageFiles) ? imageData.imageFiles : [];
+    const found = imageFiles.find(file => file.fileId === target);
+    return found && found.imageUrl ? found.imageUrl : this.getThumbnailUrl(target, size || 'w600');
   },
 
   findImageIdForCast_(imageMap, castName) {

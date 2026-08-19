@@ -125,12 +125,14 @@ store から対象行を決定
 ## 7. 画像取得フロー
 
 ```text
-ID管理シートから DRIVE_IMAGE_FOLDER_ID / DRIVE_IMAGE_FOLDER_IDS を取得
+画像登録シートから登録済みDrive画像を取得
+↓
+ENABLE_DRIVE_IMAGE_SCAN=true の場合のみ ID管理シートから DRIVE_IMAGE_FOLDER_ID / DRIVE_IMAGE_FOLDER_IDS を取得
 ↓
 Google Drive フォルダ内のファイルを複数フォルダから取得
   指定フォルダ配下のサブフォルダも走査
 ↓
-ファイル名から拡張子を除外
+登録名・ファイル名から拡張子を除外
 ↓
 キャスト名 → fileId のマップを作成
 ↓
@@ -197,40 +199,28 @@ CacheServiceへ保存
 画像一覧を再描画
 ```
 
-## 11. 画像追加フロー
+## 11. 画像登録フロー
 
 ```text
 ユーザーが名前を入力
 ↓
 大阪 / 東京フォルダを選択
 ↓
-画像ファイルを選択
+DriveファイルIDまたはURLを入力
 ↓
-JSONPで uploadImage action の存在を確認
+registerImage をJSONPで実行
 ↓
-verifyImageUpload で既存同名ファイルIDを控える
+画像登録シートへ追記または更新
 ↓
-uploadImage を iframe postMessage POST で実行
-↓
-GASで name + 元拡張子 のファイル名を作成
-↓
-選択されたDriveフォルダへ画像を保存
-↓
-保存記録Spreadsheetへ追記
-↓
-verifyImageUpload で新規ファイルの追加を確認
-↓
-画像キャッシュを破棄
+画像キャッシュを破棄して再生成
 ↓
 getImageList を再取得して編集テーブル・画像プレビューを再描画
 ```
 
-- 保存先は大阪フォルダ `17zZbEhzgr3Fp_yfdox3zWLhO5kSUwvhZ` または東京フォルダ `1Ob0yiSr0yP_sHa72t9xg8xmGn5YEUYR-`。
-- 保存記録は `IMAGE_UPLOAD_LOG_SPREADSHEET_ID` の `SHEET_IMAGE_UPLOAD_LOG` タブへ追記する。
-- アップロードはURL長制限とCORS制約を避けるため、hidden iframe のフォームPOSTで送信する。
-- GASはHTMLレスポンスの `postMessage` で親画面へ成否を返し、さらにDrive上の新規ファイル確認後に成功表示する。
-- `Unknown action: uploadImage` が返る場合は Apps Script の新バージョン再デプロイが必要。
-- 画像追加後は自動照合用のファイル名として、入力名から拡張子を除いた名前を使用する。
+- 登録先シートは `SHEET_IMAGE_REGISTRY`、既定値は `画像登録`。
+- 列は `名前 / ファイルID / ファイルURL / サムネイルURL / フォルダ名 / 更新日`。
+- 同じファイルIDが既にある場合は既存行を更新する。
+- 画像登録後は自動照合用の名前として、登録名から拡張子を除いた名前を使用する。
 
 ## 12. エラー処理フロー
 

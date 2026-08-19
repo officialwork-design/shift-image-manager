@@ -37,6 +37,14 @@ const Api = (() => {
     return iframePostMessageRequest(config.GAS_WEB_APP_URL, action, payload, timeoutMs);
   }
 
+  function postFile(action, payload = {}, fileInput, timeoutMs = 60000) {
+    const config = window.APP_CONFIG || {};
+    if (!config.GAS_WEB_APP_URL) {
+      return Promise.reject(new Error('config.js の GAS_WEB_APP_URL が未設定です'));
+    }
+    return iframePostMessageFileRequest(config.GAS_WEB_APP_URL, action, payload, fileInput, timeoutMs);
+  }
+
   function jsonpRequest(url, action, payload) {
     return jsonpRequestRaw(url, action, payload).then((data) => {
       if (!data || !data.success) throw new Error((data && data.message) || 'API error');
@@ -131,6 +139,82 @@ const Api = (() => {
     form.appendChild(field);
   }
 
+  async function iframePostMessageFileRequest(url, action, payload, fileInput, timeoutMs) {
+    const probe = await probeAction(url, action);
+    if (!probe.available) throw new Error(probe.message);
+    if (!fileInput || !fileInput.files || !fileInput.files.length) {
+      throw new Error('追加する画像ファイルを選択してください。');
+    }
+
+    return new Promise((resolve, reject) => {
+      const messageId = `shiftUploadMessage_${Date.now()}_${seq++}`;
+      const frameName = `shiftUploadFrame_${Date.now()}_${seq++}`;
+      const iframe = document.createElement('iframe');
+      const form = document.createElement('form');
+      const placeholder = document.createComment('shift-upload-file-input');
+      const originalParent = fileInput.parentNode;
+      const originalName = fileInput.name;
+      const originalNext = fileInput.nextSibling;
+      let restored = false;
+      let settled = false;
+      const timer = setTimeout(() => cleanup(new Error('API timeout')), timeoutMs);
+
+      iframe.name = frameName;
+      iframe.style.display = 'none';
+
+      form.method = 'POST';
+      form.action = url;
+      form.target = frameName;
+      form.enctype = 'multipart/form-data';
+      form.style.display = 'none';
+
+      appendField(form, 'action', action);
+      Object.keys(payload || {}).forEach(key => appendField(form, key, payload[key]));
+      appendField(form, 'responseMode', 'postMessage');
+      appendField(form, 'messageId', messageId);
+      appendField(form, 'parentOrigin', window.location.origin);
+
+      originalParent.insertBefore(placeholder, fileInput);
+      fileInput.name = 'imageFile';
+      form.appendChild(fileInput);
+
+      function onMessage(event) {
+        const message = event.data || {};
+        if (message.source !== 'shift-image-manager' || message.messageId !== messageId) return;
+        const response = message.response || {};
+        if (!response.success) cleanup(new Error(response.message || 'API error'));
+        else cleanup(null, response.data);
+      }
+
+      function restoreFileInput() {
+        if (restored) return;
+        restored = true;
+        fileInput.name = originalName;
+        if (placeholder.parentNode) {
+          placeholder.parentNode.replaceChild(fileInput, placeholder);
+        } else if (originalParent) {
+          originalParent.insertBefore(fileInput, originalNext);
+        }
+      }
+
+      function cleanup(err, data) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        window.removeEventListener('message', onMessage);
+        restoreFileInput();
+        if (form.parentNode) form.parentNode.removeChild(form);
+        if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+        if (err) reject(err); else resolve(data);
+      }
+
+      window.addEventListener('message', onMessage);
+      document.body.appendChild(iframe);
+      document.body.appendChild(form);
+      form.submit();
+    });
+  }
+
   async function probeAction(url, action) {
     const data = await jsonpRequestRaw(url, action, { __probe: true }, 30000);
     const message = (data && data.message) || '';
@@ -143,5 +227,5 @@ const Api = (() => {
     return { available: true };
   }
 
-  return { request, post };
+  return { request, post, postFile };
 })();

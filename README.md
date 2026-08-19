@@ -186,6 +186,12 @@ clasp deploy
 
 ## 画像取得フォルダー
 
+通常運用では `画像登録` シートの内容を画像照合元として使用します。列は `名前 / ファイルID / ファイルURL / サムネイルURL / フォルダ名 / 更新日` です。
+
+`画像登録` にない画像は、従来通りDriveフォルダーからも取得します。
+
+Driveフォルダーの全走査は `ID管理` の `ENABLE_DRIVE_IMAGE_SCAN` が `true` の場合のみ実行します。通常はタイムアウト回避のため `false` で運用します。
+
 画像取得元は `ID管理` シートの `DRIVE_IMAGE_FOLDER_ID` を主フォルダーとして使用します。
 
 追加フォルダーは `DRIVE_IMAGE_FOLDER_IDS` にカンマ区切りまたは改行区切りで指定できます。フォルダーIDだけでなく、Google Drive のフォルダーURLも指定できます。指定フォルダー配下のサブフォルダーも画像取得対象です。
@@ -194,10 +200,10 @@ clasp deploy
 17zZbEhzgr3Fp_yfdox3zWLhO5kSUwvhZ
 ```
 
-画像追加時の保存記録は `IMAGE_UPLOAD_LOG_SPREADSHEET_ID` のSpreadsheetに追記します。初期値は以下です。
+画像登録UIでは、DriveファイルIDまたはURLを `画像登録` シートへ追記します。
 
 ```text
-1QivIBngvbskj7oNbToliE9_aq3Gke74VyrL37zU7qac
+名前 / ファイルID / ファイルURL / サムネイルURL / フォルダ名 / 更新日
 ```
 
 ## 実装順
@@ -210,7 +216,7 @@ clasp deploy
 6. changeDateAndStore
 7. getImageList
 8. 休み設定
-9. 画像追加
+9. 画像登録
 10. 画像未登録チェック
 11. 画像キャッシュ更新
 12. UI改善

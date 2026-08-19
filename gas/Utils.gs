@@ -122,7 +122,12 @@ const Utils = {
 
   parseJson(text, fallback) {
     if (!text) return fallback;
-    return JSON.parse(text);
+    try {
+      return JSON.parse(text);
+    } catch (err) {
+      if (arguments.length >= 2) return fallback;
+      throw err;
+    }
   },
 
   errorMessage(err) {

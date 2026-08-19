@@ -31,11 +31,15 @@ GAS_WEB_APP_URL
 
 ### iframe postMessage POST
 
-画像アップロードなどURL長制限に当たる処理は、GitHub Pages から hidden iframe のフォームPOSTで送信します。Apps Script WebApp のCORS制約を避けるため、GASはHTMLレスポンス内の `postMessage` で親画面へ処理結果を返します。
+画像アップロードなどURL長制限に当たる処理は、GitHub Pages から hidden iframe の `multipart/form-data` フォームPOSTで送信します。Apps Script WebApp のCORS制約を避けるため、GASはHTMLレスポンス内の `postMessage` で親画面へ処理結果を返します。
 
 ```text
-action=uploadImage
-payload={...}
+action=uploadImageFile
+name=あいな
+folderKey=osaka
+fileName=source.jpg
+mimeType=image/jpeg
+imageFile=(binary)
 responseMode=postMessage
 messageId=...
 parentOrigin=https://officialwork-design.github.io
@@ -88,7 +92,9 @@ parentOrigin=https://officialwork-design.github.io
 | getImageList | 画像一覧・出勤/休み一覧取得 | 必須 |
 | updateShiftRows | 編集テーブルの一括保存 | 必須 |
 | setCastAbsent | 休み/出勤切替 | 必須 |
-| uploadImage | Drive画像フォルダへの画像追加 | 任意 |
+| registerImage | 画像登録シートへのDrive画像登録 | 任意 |
+| uploadImage | Drive画像フォルダへの画像追加（dataURL互換） | 任意 |
+| uploadImageFile | Drive画像フォルダへの画像追加（ファイルフォーム） | 任意 |
 | verifyImageUpload | 画像追加後のDrive反映確認 | 任意 |
 | refreshImageCache | Drive画像キャッシュ更新 | 任意 |
 | checkImages | 画像未登録チェック | 任意 |
@@ -310,17 +316,64 @@ https://drive.google.com/thumbnail?id={fileId}&sz=w600
 }
 ```
 
-## 13. uploadImage
+## 13. registerImage
+
+### 用途
+
+Drive画像を `画像登録` シートへ登録します。通常UIではこのAPIを使用します。
+
+登録シートの列は `名前 / ファイルID / ファイルURL / サムネイルURL / フォルダ名 / 更新日` です。
+
+### payload
+
+```json
+{
+  "name": "めう.jpeg",
+  "fileIdOrUrl": "https://drive.google.com/file/d/1x8GjrSXNH-XOYmWnbEZoeO9E_7DhxdVs/view?usp=drivesdk",
+  "folderKey": "tokyo"
+}
+```
+
+### data
+
+```json
+{
+  "success": true,
+  "name": "めう.jpeg",
+  "fileId": "1x8GjrSXNH-XOYmWnbEZoeO9E_7DhxdVs",
+  "fileUrl": "https://drive.google.com/file/d/1x8GjrSXNH-XOYmWnbEZoeO9E_7DhxdVs/view?usp=drivesdk",
+  "thumbnailUrl": "https://drive.google.com/thumbnail?id=1x8GjrSXNH-XOYmWnbEZoeO9E_7DhxdVs&sz=w1000",
+  "folderName": "東京",
+  "updatedAt": "2026/08/19",
+  "row": 2
+}
+```
+
+同じ `ファイルID` が既に登録されている場合は既存行を更新します。登録後は画像キャッシュを破棄し、`getImageList` の画像候補・自動照合に反映します。
+
+## 14. uploadImage / uploadImageFile
 
 ### 用途
 
 GitHub Pages から画像を追加し、選択したDrive画像フォルダへ保存します。
 
-画像アップロードはURL長制限を避けるため、JSONPではなく iframe postMessage POSTで送信します。保存ファイル名は `name + 元画像の拡張子` です。
+このAPI群はDriveフォルダへ直接ファイル保存する互換用です。通常UIでは `registerImage` で既存Drive画像のファイルID/URLを `画像登録` シートへ登録します。
 
-GitHub Pages から通常の `fetch POST` はCORSで失敗しやすいため使用しません。送信前にJSONPで `uploadImage` action の存在だけ確認し、`Unknown action: uploadImage` の場合は Apps Script の再デプロイが必要です。
+`uploadImageFile` はファイル入力を `multipart/form-data` で送信します。`uploadImage` はdataURL互換用として残します。保存ファイル名は `name + 元画像の拡張子` です。
 
-### payload
+GitHub Pages から通常の `fetch POST` はCORSで失敗しやすいため使用しません。送信前にJSONPで `uploadImageFile` action の存在だけ確認し、`Unknown action: uploadImageFile` の場合は Apps Script の再デプロイが必要です。
+
+### payload（uploadImageFile）
+
+```text
+name=あいな
+folderKey=osaka
+fileName=source.jpg
+mimeType=image/jpeg
+imageFile=(binary)
+```
+
+### payload（uploadImage）
 
 ```json
 {
@@ -355,11 +408,11 @@ GitHub Pages から通常の `fetch POST` はCORSで失敗しやすいため使�
 }
 ```
 
-POSTはGASのHTMLレスポンスから `postMessage` で成否を受け取ります。送信後に `verifyImageUpload` でDrive反映も確認し、`refreshImageCache` と `getImageList` をJSONPで再取得します。
+`uploadImageFile` はGASのHTMLレスポンスから `postMessage` で成否を受け取ります。送信後に `verifyImageUpload` でDrive反映も確認し、`refreshImageCache` と `getImageList` をJSONPで再取得します。
 
 保存記録は `IMAGE_UPLOAD_LOG_SPREADSHEET_ID` のSpreadsheetに追記します。記録のみ失敗した場合はアップロードを成功扱いにし、`エラーログ` に記録します。
 
-## 14. verifyImageUpload
+## 15. verifyImageUpload
 
 ### 用途
 
@@ -396,7 +449,7 @@ POSTはGASのHTMLレスポンスから `postMessage` で成否を受け取りま
 }
 ```
 
-## 15. refreshImageCache
+## 16. refreshImageCache
 
 ### 用途
 
@@ -422,7 +475,7 @@ Google Driveの画像ファイル一覧を再取得し、キャッシュしま�
 }
 ```
 
-## 16. checkImages
+## 17. checkImages
 
 ### 用途
 
@@ -443,13 +496,13 @@ Google Driveの画像ファイル一覧を再取得し、キャッシュしま�
 }
 ```
 
-## 17. エラー処理
+## 18. エラー処理
 
 GAS側で例外が発生した場合、エラー内容を `エラーログ` シートへ保存します。
 
 フロント側では toast または alert で表示します。
 
-## 18. 注意事項
+## 19. 注意事項
 
 - GitHub Pages側に秘密情報は置かない。
 - GAS_WEB_APP_URLは公開前提で扱う。
