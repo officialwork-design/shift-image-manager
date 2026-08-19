@@ -320,7 +320,7 @@ https://drive.google.com/thumbnail?id={fileId}&sz=w600
 
 ### 用途
 
-Drive画像を `画像登録` シートへ登録します。通常UIではこのAPIを使用します。
+既にDriveへ保存済みの画像を `画像登録` シートへ登録します。通常UIではローカルファイル選択による `uploadImageFile` を使用し、このAPIは既存Drive画像を後から登録する補助用です。
 
 登録シートの列は `名前 / ファイルID / ファイルURL / サムネイルURL / フォルダ名 / 更新日` です。
 
@@ -355,9 +355,9 @@ Drive画像を `画像登録` シートへ登録します。通常UIではこの
 
 ### 用途
 
-GitHub Pages から画像を追加し、選択したDrive画像フォルダへ保存します。
+GitHub Pages からローカル画像ファイルを追加し、選択したDrive画像フォルダへ保存します。
 
-このAPI群はDriveフォルダへ直接ファイル保存する互換用です。通常UIでは `registerImage` で既存Drive画像のファイルID/URLを `画像登録` シートへ登録します。
+通常UIでは `uploadImageFile` を使用します。保存後はDriveフォルダにファイルを作成し、同じ内容を `画像登録` シートへ追記または更新します。`registerImage` は既存Drive画像のファイルID/URLを登録する補助用です。
 
 `uploadImageFile` はファイル入力を `multipart/form-data` で送信します。`uploadImage` はdataURL互換用として残します。保存ファイル名は `name + 元画像の拡張子` です。
 
@@ -408,7 +408,7 @@ imageFile=(binary)
 }
 ```
 
-`uploadImageFile` はGASのHTMLレスポンスから `postMessage` で成否を受け取ります。送信後に `verifyImageUpload` でDrive反映も確認し、`refreshImageCache` と `getImageList` をJSONPで再取得します。
+`uploadImageFile` はGASのHTMLレスポンスから `postMessage` で成否を受け取ります。送信後は `refreshImageCache` を呼ばず、`getImageList` をJSONPで再取得します。画像照合元は通常 `画像登録` シートのため、全Drive走査によるAPI timeoutを避けます。
 
 保存記録は `IMAGE_UPLOAD_LOG_SPREADSHEET_ID` のSpreadsheetに追記します。記録のみ失敗した場合はアップロードを成功扱いにし、`エラーログ` に記録します。
 

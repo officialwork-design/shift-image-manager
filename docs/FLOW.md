@@ -206,13 +206,29 @@ CacheServiceへ保存
 ↓
 大阪 / 東京フォルダを選択
 ↓
+ローカル画像ファイルを選択
+↓
+uploadImageFile を multipart/form-data で実行
+↓
+Driveフォルダへ保存
+↓
+画像登録シートへ追記または更新
+↓
+getImageList を再取得して編集テーブル・画像プレビューを再描画
+```
+
+既にDriveへ保存済みの画像を登録する場合のみ、DriveファイルIDまたはURLを入力して `registerImage` をJSONPで実行する。
+
+```text
+ユーザーが名前を入力
+↓
+大阪 / 東京フォルダを選択
+↓
 DriveファイルIDまたはURLを入力
 ↓
 registerImage をJSONPで実行
 ↓
 画像登録シートへ追記または更新
-↓
-画像キャッシュを破棄して再生成
 ↓
 getImageList を再取得して編集テーブル・画像プレビューを再描画
 ```

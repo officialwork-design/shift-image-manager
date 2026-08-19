@@ -200,7 +200,7 @@ Driveフォルダーの全走査は `ID管理` の `ENABLE_DRIVE_IMAGE_SCAN` が
 17zZbEhzgr3Fp_yfdox3zWLhO5kSUwvhZ
 ```
 
-画像登録UIでは、DriveファイルIDまたはURLを `画像登録` シートへ追記します。
+画像登録UIでは、ローカルファイルを選択して大阪/東京フォルダーへ保存し、同時に `画像登録` シートへ追記します。既にDriveへ保存済みの画像だけを登録したい場合は、補助欄のDriveファイルIDまたはURLを使用します。
 
 ```text
 名前 / ファイルID / ファイルURL / サムネイルURL / フォルダ名 / 更新日
