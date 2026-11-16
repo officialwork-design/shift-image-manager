@@ -56,6 +56,31 @@
 | checkImages | ADMIN / EDITOR | 維持 | store / date 必須。画像チェックシートへ追記 |
 | changeDateAndStore | ADMIN / EDITOR | 互換 | `initializeShift` と同じ（**既存データを消さない**） |
 | updateShiftRows | – | **廃止** | `LEGACY_API_REMOVED`。`saveShift` を使用 |
+| getBackground | ADMIN / EDITOR | **新規（背景）** | 店舗の背景設定と背景画像（data URL）。`{ store, includeImage? }` |
+| saveBackground | ADMIN / EDITOR | **新規（背景）** | 背景画像の差し替え・余白色・配置領域の保存（revision 検証・LockService） |
+| clearBackground | **ADMIN** | **新規（背景）** | 背景の登録解除（Drive のファイルは削除しない） |
+| getCastPhotos | ADMIN / EDITOR | **新規（背景）** | 画像生成用: 出勤キャスト（並び順・休み除外）と写真（data URL） |
+
+### 背景画像・画像生成 API（詳細は docs/IMAGE_LAYOUT.md）
+
+```
+saveBackground payload:
+{ store: "KABUKI", expectedRevision: 0,
+  image?:    { dataBase64: "<PNG/JPEG の base64>", mimeType: "image/png" | "image/jpeg", fileName: "bg.png" },
+  settings?: { fillColor: "#rrggbb" | "", area: { top, bottom, left, right } } }   // image / settings の少なくとも一方
+
+getBackground / saveBackground / clearBackground の data:
+{ store, revision, configured, fileName, mimeType, width, height, bytes, updatedAt,
+  settings: { fillColor, area: { top, bottom, left, right } }, canvas: { width: 1447, height: 2048 }, dataUrl? }
+
+getCastPhotos payload: { store, date } → data:
+{ store, date, revision, initialized, casts: [{ recordId, name, workTime, fileId, source }], photos: { <fileId>: "data:image/...;base64,..." }, failedCount }
+```
+
+- 本文の上限: 通常 200KB、`saveBackground` のみ 12MB（画像 8MB の base64）。
+- 画像は先頭バイトで PNG / JPEG を判定し、申告 MIME と一致しない場合は `INVALID_IMAGE`。
+- エラー: `INVALID_IMAGE_TYPE` / `INVALID_IMAGE` / `IMAGE_TOO_LARGE` / `INVALID_IMAGE_SIZE` / `INVALID_SETTINGS` / `INVALID_BACKGROUND` /
+  `REVISION_CONFLICT` / `BACKGROUND_FOLDER_NOT_CONFIGURED` / `BACKGROUND_UNAVAILABLE` / `BACKGROUND_DUPLICATE` / `DRIVE_WRITE_FAILED` / `TOO_MANY_PHOTOS`
 
 ## 5. 読み取り API（すべて認証必須・POST）
 

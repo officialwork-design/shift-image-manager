@@ -47,7 +47,10 @@ const DEFAULT_CONFIG = {
   IMAGE_CACHE_SECONDS: 600,
   SHEET_SHIFT_EDIT: 'シフト編集',
   SHEET_SHIFT_EDIT_MANAGE: 'シフト編集管理',
-  SHEET_ACCESS_CONTROL: 'アクセス権限'
+  SHEET_ACCESS_CONTROL: 'アクセス権限',
+  SHEET_BACKGROUND: '背景設定',
+  // 背景画像の保存先（店舗別背景）。本番は明示設定が必要。テスト環境で未設定ならテスト用フォルダを自動作成する
+  DRIVE_BACKGROUND_FOLDER_ID: ''
 };
 
 // 店舗×日付別 編集データ保存の設定（Phase 1.5）

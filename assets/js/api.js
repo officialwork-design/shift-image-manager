@@ -101,6 +101,16 @@ const Api = (() => {
     return `req-${Date.now()}-${Math.random().toString(36).slice(2)}-${seq++}`;
   }
 
+  // 背景画像・画像生成（すべて認証付き POST。画像は data URL / base64 で受け渡す）
+  const background = {
+    get: (store, options) => call('getBackground', { store, includeImage: !(options && options.includeImage === false) }),
+    // image: { dataBase64, mimeType, fileName } / settings: { fillColor, area: { top, bottom, left, right } }
+    save: (store, expectedRevision, image, settings) => call('saveBackground', Object.assign({ store, expectedRevision },
+      image ? { image } : {}, settings ? { settings } : {}), { requestId: newRequestId(), timeoutMs: 180000 }),
+    clear: (store, expectedRevision) => call('clearBackground', { store, expectedRevision }, { requestId: newRequestId() }),
+    castPhotos: (store, date) => call('getCastPhotos', { store, date }, { timeoutMs: 180000 })
+  };
+
   // Phase 1.5 互換の名前（すべて認証付き POST）
-  return { call, publicCall, write: call, read: call, setTokenProvider, newRequestId, parseResponse };
+  return { call, publicCall, write: call, read: call, setTokenProvider, newRequestId, parseResponse, background };
 })();

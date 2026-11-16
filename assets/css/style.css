@@ -273,3 +273,9 @@ body {
     font-size: 1rem;
   }
 }
+
+/* 背景画像・画像生成 */
+.bg-preview-wrap, .generated-wrap { background: repeating-conic-gradient(#f1f3f5 0% 25%, #ffffff 0% 50%) 50% / 16px 16px; border: 1px solid #dee2e6; border-radius: .5rem; padding: .5rem; text-align: center; }
+.bg-preview-canvas { width: 100%; max-width: 260px; height: auto; aspect-ratio: 1447 / 2048; }
+.generated-canvas { width: 100%; max-width: 420px; height: auto; aspect-ratio: 1447 / 2048; background: #fff; }
+.generated-canvas.is-empty { opacity: .35; }

@@ -84,6 +84,49 @@ function createGasContext(opts) {
   const lockState = options.lockState || { held: false, forceTimeout: false };
   let uuidSeq = 0;
   const fetchLog = options.fetchLog || [];
+  // Drive REST API（drive.file）のモック: フォルダ作成・multipart アップロード・メタデータ・サムネイル
+  const fakeDrive = options.fakeDrive || { folders: {}, files: {}, seq: 0, writes: [] };
+  if (!fakeDrive.writes) fakeDrive.writes = [];
+  function fakeDriveFetch(url, params) {
+    const p = params || {};
+    if (url.indexOf('https://www.googleapis.com/') !== 0 && url.indexOf('https://lh3.googleusercontent.com/') !== 0) return null;
+    if (fakeDrive.failWrites && (p.method || '').toLowerCase() === 'post') return { status: 403, body: '{"error":{"message":"forbidden"}}' };
+    if (/^https:\/\/www\.googleapis\.com\/drive\/v3\/files\?/.test(url) && (p.method || '').toLowerCase() === 'post') {
+      const meta = JSON.parse(p.payload);
+      const id = 'FOLDER_NEW_' + (++fakeDrive.seq);
+      fakeDrive.folders[id] = { name: meta.name };
+      fakeDrive.writes.push({ type: 'folder', id, name: meta.name, auth: (p.headers || {}).Authorization });
+      return { status: 200, body: JSON.stringify({ id }) };
+    }
+    if (/\/upload\/drive\/v3\/files\?uploadType=multipart/.test(url)) {
+      const buf = Buffer.from(p.payload.map(b => b & 0xff));
+      const boundary = /boundary=(.+)$/.exec(p.contentType)[1];
+      const text = buf.toString('latin1');
+      const parts = text.split('--' + boundary);
+      const metaPart = parts[1];
+      const meta = JSON.parse(Buffer.from(metaPart.slice(metaPart.indexOf('\r\n\r\n') + 4).replace(/\r\n$/, ''), 'latin1').toString('utf8'));
+      const filePart = parts[2];
+      const body = filePart.slice(filePart.indexOf('\r\n\r\n') + 4).replace(/\r\n$/, '');
+      const id = 'FILE_NEW_' + (++fakeDrive.seq);
+      fakeDrive.files[id] = { name: meta.name, mimeType: meta.mimeType, parents: meta.parents, bytes: Buffer.from(body, 'latin1') };
+      fakeDrive.writes.push({ type: 'file', id, name: meta.name, parents: meta.parents });
+      return { status: 200, body: JSON.stringify({ id }) };
+    }
+    const metaMatch = /\/drive\/v3\/files\/([^?]+)\?fields=/.exec(url);
+    if (metaMatch) {
+      const id = decodeURIComponent(metaMatch[1]);
+      const f = fakeDrive.photos && fakeDrive.photos[id];
+      if (!f) return { status: 404, body: '{}' };
+      return { status: 200, body: JSON.stringify({ thumbnailLink: 'https://lh3.googleusercontent.com/thumb/' + id + '=s220', mimeType: f.mimeType, size: String(f.bytes.length) }) };
+    }
+    const thumb = /lh3\.googleusercontent\.com\/thumb\/([^=]+)=(s\d+)/.exec(url);
+    if (thumb) {
+      const f = fakeDrive.photos && fakeDrive.photos[thumb[1]];
+      fakeDrive.thumbRequests = (fakeDrive.thumbRequests || []).concat(thumb[2]);
+      return f ? { status: 200, bytes: f.bytes, contentType: f.mimeType } : { status: 404 };
+    }
+    return null;
+  }
   const openLog = [];
 
   const context = {
@@ -117,8 +160,9 @@ function createGasContext(opts) {
         releaseLock() { lockState.held = false; }
       })
     },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in props ? props[k] : null), getProperties: () => Object.assign({}, props) }) },
-    ScriptApp: { getScriptId: () => options.scriptId || '1m0G9Y3ATR885RDD1LBEjp5Zsc5Ts4qv_hq1q9kFw3Xe0WmKy5DQVnATS' },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in props ? props[k] : null), getProperties: () => Object.assign({}, props),
+      setProperty: (k, v) => { props[k] = String(v); } }) },
+    ScriptApp: { getScriptId: () => options.scriptId || '1m0G9Y3ATR885RDD1LBEjp5Zsc5Ts4qv_hq1q9kFw3Xe0WmKy5DQVnATS', getOAuthToken: () => 'FAKE_OAUTH_TOKEN' },
     Utilities: {
       formatDate(date, _tz, pattern) {
         // JST 固定（テスト用）
@@ -128,7 +172,11 @@ function createGasContext(opts) {
         return pattern.replace(/yyyy|MM|dd|HH|mm|ss/g, k => map[k]);
       },
       getUuid: () => 'uuid-' + (++uuidSeq),
-      newBlob: s => ({ getBytes: () => Buffer.from(String(s), 'utf8') }),
+      newBlob: (s, mime, name) => {
+        const buf = Array.isArray(s) || Buffer.isBuffer(s) ? Buffer.from(s.map ? s.map(b => b & 0xff) : s) : Buffer.from(String(s), 'utf8');
+        return { getBytes: () => Array.from(buf).map(b => (b > 127 ? b - 256 : b)), getContentType: () => mime || '', getName: () => name || '' };
+      },
+      base64Decode: b64 => Array.from(Buffer.from(String(b64), 'base64')).map(b => (b > 127 ? b - 256 : b)),
       DigestAlgorithm: { SHA_256: 'SHA_256' },
       Charset: { US_ASCII: 'US_ASCII', UTF_8: 'UTF_8' },
       // GAS と同じく符号付きバイト（-128..127）の配列を返す
@@ -137,10 +185,23 @@ function createGasContext(opts) {
         const buf = require('crypto').createHash('sha256').update(Buffer.from(String(value), charset === 'US_ASCII' ? 'latin1' : 'utf8')).digest();
         return Array.from(buf).map(b => (b > 127 ? b - 256 : b));
       },
-      base64Encode: b => Buffer.from(b).toString('base64')
+      base64Encode: b => Buffer.from(Array.from(b).map(x => x & 0xff)).toString('base64')
     },
     DriveApp: {
+      getFileById(id) {
+        const f = fakeDrive.files[id];
+        if (!f) throw new Error('File not found: ' + id);
+        const iter = arr => { let i = 0; return { hasNext: () => i < arr.length, next: () => arr[i++] }; };
+        return {
+          getId: () => id, getName: () => f.name, getMimeType: () => f.mimeType,
+          getBlob: () => ({ getBytes: () => Array.from(f.bytes).map(b => (b > 127 ? b - 256 : b)), getContentType: () => f.mimeType }),
+          getParents: () => iter((f.parents || []).map(pid => ({ getId: () => pid })))
+        };
+      },
       getFolderById(id) {
+        if (fakeDrive.folders[id]) {
+          return { getId: () => id, getName: () => fakeDrive.folders[id].name };
+        }
         const folder = (options.driveFolders || {})[id];
         if (!folder) throw new Error('Folder not found: ' + id);
         const iter = arr => { let i = 0; return { hasNext: () => i < arr.length, next: () => arr[i++] }; };
@@ -153,6 +214,12 @@ function createGasContext(opts) {
     },
     UrlFetchApp: {
       fetch(url, params) {
+        const drive = fakeDriveFetch(url, params);
+        if (drive) {
+          fetchLog.push(url);
+          return { getResponseCode: () => drive.status || 200, getContentText: () => drive.body || '', getHeaders: () => ({}),
+            getBlob: () => ({ getBytes: () => Array.from(drive.bytes || []).map(b => (b > 127 ? b - 256 : b)), getContentType: () => drive.contentType || '' }) };
+        }
         const handler = options.urlFetch;
         if (!handler) throw new Error('UrlFetchApp not available in this test');
         fetchLog.push(url);
@@ -178,10 +245,10 @@ function createGasContext(opts) {
   const gasDir = path.join(__dirname, '..', 'gas');
   const files = fs.readdirSync(gasDir).filter(f => f.endsWith('.gs')).sort();
   const source = files.map(f => fs.readFileSync(path.join(gasDir, f), 'utf8')).join('\n;\n') +
-    '\n;this.__gas = { ShiftService, ShiftRepository, SiftService, ImageService, AuthService, ApiRouter, MigrationService, ConfigService, LogService, SpreadsheetService, Utils, doGet, doPost, SHIFT_EDIT_HEADERS, SHIFT_MANAGE_HEADERS, SHIFT_STORAGE, setupShiftImageManager, GoogleIdTokenVerifier, AccessControlService, GOOGLE_ID_TOKEN, authSelfTest, setupTestFixtures, TestFixtures, API_PROTECTED_ACTIONS, API_PUBLIC_ACTIONS, API_REMOVED_ACTIONS };';
+    '\n;this.__gas = { ShiftService, ShiftRepository, SiftService, ImageService, AuthService, ApiRouter, MigrationService, ConfigService, LogService, SpreadsheetService, Utils, BackgroundService, BackgroundImageInfo, BACKGROUND_HEADERS, doGet, doPost, SHIFT_EDIT_HEADERS, SHIFT_MANAGE_HEADERS, SHIFT_STORAGE, setupShiftImageManager, GoogleIdTokenVerifier, AccessControlService, GOOGLE_ID_TOKEN, authSelfTest, setupTestFixtures, TestFixtures, API_PROTECTED_ACTIONS, API_PUBLIC_ACTIONS, API_REMOVED_ACTIONS };';
   vm.createContext(context);
   vm.runInContext(source, context, { filename: 'gas-bundle.js' });
-  return { gas: context.__gas, ss, cacheStore, props, lockState, context, fetchLog, openLog };
+  return { gas: context.__gas, ss, cacheStore, props, lockState, context, fetchLog, openLog, fakeDrive };
 }
 
 // 標準的なテスト用スプレッドシート（SIFT_DATA・画像フォルダ・ログ）

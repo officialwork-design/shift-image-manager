@@ -265,6 +265,7 @@ function applyRoleUi() {
   resetButton.disabled = !perms.canReset;
   resetButton.title = perms.canReset ? '' : '元データからの初期化は ADMIN のみ実行できます';
   document.getElementById('resetAdminNote').classList.toggle('d-none', perms.canReset || !state.identity);
+  if (typeof updateBackgroundButtons === 'function') updateBackgroundButtons();
 }
 
 function logout() {
@@ -292,6 +293,7 @@ function clearShiftData() {
   document.getElementById('siftPreviewBody').textContent = '';
   document.getElementById('alertArea').innerHTML = '';
   document.getElementById('datePicker').innerHTML = '<option value="">ログイン後に表示</option>';
+  resetBackgroundUi();
   updateSaveState();
 }
 
@@ -508,6 +510,8 @@ async function loadShift(selection) {
     applyData(data);
     await loadSiftPreview(selection);
     setStatus(`同期 ${data.updatedAt || ''}`, 'success');
+    if (bgState.generated && (bgState.generated.store !== selection.store || bgState.generated.date !== selection.date)) clearGeneratedImage();
+    ensureBackgroundLoaded(selection.store);   // 背景は店舗ごと（読み込み失敗してもシフト表示は続ける）
   } catch (err) {
     if (!handleAuthErrorIfAny(err)) showAlert(err.message, 'danger');
     setStatus('エラー', 'danger');
@@ -1400,4 +1404,322 @@ function escapeHtml(value) {
     "'": '&#039;',
     '"': '&quot;'
   }[s]));
+}
+
+// ===== 背景画像・出勤キャスト画像の生成（1447 × 2048 px 固定・人数で自動配置） =====
+// - 背景は店舗ごと。差し替え・設定変更はシフトデータに影響しない（別シート・別 API）
+// - 画像は data URL で受け取り Canvas に描く（Drive の URL を直接描くと Canvas が汚染され PNG 保存できない）
+// - 生成は「保存済み」のシフトを使う（未保存の変更がある場合は保存を促す）
+const bgState = {
+  store: '',
+  view: null,          // サーバーの背景設定（revision / settings / configured ...）
+  image: null,         // 表示中の背景（HTMLImageElement）
+  pending: null,       // 未保存の新しい背景 { dataBase64, mimeType, fileName, image }
+  generated: null,     // 最後に生成した { store, date, count }
+  loading: false
+};
+const BG_MAX_BYTES = 8 * 1024 * 1024;
+
+function bindBackgroundEvents() {
+  document.getElementById('bgFileInput').addEventListener('change', onBackgroundFileSelected);
+  document.getElementById('bgSaveButton').addEventListener('click', saveBackgroundSettings);
+  document.getElementById('bgRevertButton').addEventListener('click', revertBackgroundChanges);
+  document.getElementById('bgClearButton').addEventListener('click', clearBackgroundImage);
+  document.getElementById('generateButton').addEventListener('click', generateShiftImage);
+  document.getElementById('pngSaveButton').addEventListener('click', saveGeneratedPng);
+  document.getElementById('bgFillColor').addEventListener('input', () => { document.getElementById('bgFillAuto').checked = false; onBackgroundSettingsInput(); });
+  document.getElementById('bgFillAuto').addEventListener('change', onBackgroundSettingsInput);
+  document.querySelectorAll('.js-bg-area').forEach(el => el.addEventListener('input', onBackgroundSettingsInput));
+}
+window.addEventListener('DOMContentLoaded', () => { bindBackgroundEvents(); resetBackgroundUi(); });
+
+function readBackgroundSettingsFromForm() {
+  const num = id => Number(document.getElementById(id).value);
+  return {
+    fillColor: document.getElementById('bgFillAuto').checked ? '' : document.getElementById('bgFillColor').value.toLowerCase(),
+    area: { top: num('bgAreaTop'), bottom: num('bgAreaBottom'), left: num('bgAreaLeft'), right: num('bgAreaRight') }
+  };
+}
+
+function writeBackgroundSettingsToForm(settings) {
+  const s = settings || { fillColor: '', area: ImageGenerator.DEFAULT_AREA };
+  document.getElementById('bgFillAuto').checked = !s.fillColor;
+  document.getElementById('bgFillColor').value = s.fillColor || '#ffffff';
+  document.getElementById('bgAreaTop').value = s.area.top;
+  document.getElementById('bgAreaBottom').value = s.area.bottom;
+  document.getElementById('bgAreaLeft').value = s.area.left;
+  document.getElementById('bgAreaRight').value = s.area.right;
+}
+
+function backgroundSettingsChanged() {
+  if (!bgState.view) return false;
+  const a = readBackgroundSettingsFromForm();
+  const b = bgState.view.settings;
+  return a.fillColor !== (b.fillColor || '') || ['top', 'bottom', 'left', 'right'].some(k => a.area[k] !== b.area[k]);
+}
+
+function validateBackgroundSettings(settings) {
+  const a = settings.area;
+  if (['top', 'bottom', 'left', 'right'].some(k => !Number.isInteger(a[k]) || a[k] < 0)) return '配置領域は 0 以上の整数で入力してください。';
+  if (ImageGenerator.CANVAS.width - a.left - a.right < 400 || ImageGenerator.CANVAS.height - a.top - a.bottom < 400) {
+    return '配置領域が狭すぎます（幅・高さ 400px 以上にしてください）。';
+  }
+  return '';
+}
+
+function updateBackgroundButtons() {
+  const dirty = !!bgState.pending || backgroundSettingsChanged();
+  const ready = !!bgState.view && !bgState.loading;
+  document.getElementById('bgSaveButton').disabled = !ready || !dirty;
+  document.getElementById('bgRevertButton').disabled = !ready || !dirty;
+  const perms = ShiftState.permissionsFor(state.identity && state.identity.role);
+  const clearBtn = document.getElementById('bgClearButton');
+  clearBtn.disabled = !ready || !perms.canReset || !(bgState.view && bgState.view.configured);
+  clearBtn.classList.toggle('d-none', !perms.canReset);
+}
+
+function resetBackgroundUi() {
+  Object.assign(bgState, { store: '', view: null, image: null, pending: null, generated: null, loading: false });
+  document.getElementById('bgStoreLabel').textContent = '';
+  document.getElementById('bgStatus').textContent = '店舗と日付を選択してください';
+  document.getElementById('bgFileInput').value = '';
+  writeBackgroundSettingsToForm(null);
+  drawBackgroundPreview();
+  clearGeneratedImage();
+  updateBackgroundButtons();
+}
+
+async function ensureBackgroundLoaded(store, force) {
+  if (!store || (!force && bgState.store === store && bgState.view)) return;
+  bgState.loading = true;
+  bgState.store = store;
+  bgState.pending = null;
+  document.getElementById('bgStoreLabel').textContent = store;
+  document.getElementById('bgStatus').textContent = '背景を読み込み中…';
+  document.getElementById('bgFileInput').value = '';
+  clearGeneratedImage();
+  updateBackgroundButtons();
+  try {
+    const view = await Api.background.get(store);
+    if (bgState.store !== store) return;   // 読み込み中に店舗が切り替わった
+    bgState.view = view;
+    bgState.image = view.dataUrl ? await ImageGenerator.loadImage(view.dataUrl) : null;
+    writeBackgroundSettingsToForm(view.settings);
+    document.getElementById('bgStatus').textContent = describeBackground(view);
+  } catch (err) {
+    if (bgState.store !== store) return;
+    bgState.view = null;
+    bgState.image = null;
+    if (!handleAuthErrorIfAny(err)) document.getElementById('bgStatus').textContent = '背景を読み込めませんでした: ' + err.message;
+  } finally {
+    if (bgState.store === store) bgState.loading = false;
+    drawBackgroundPreview();
+    updateBackgroundButtons();
+  }
+}
+
+function describeBackground(view) {
+  if (!view || !view.configured) return '背景は未登録です（白い背景で生成します）。';
+  return `登録済み: ${view.width} × ${view.height} px（${view.mimeType === 'image/png' ? 'PNG' : 'JPEG'}）${view.updatedAt ? ' / 更新 ' + view.updatedAt : ''}`;
+}
+
+async function onBackgroundFileSelected(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  const fail = message => { event.target.value = ''; showAlert(message, 'warning'); };
+  if (!bgState.view) return fail('先に店舗と日付を選択してください。');
+  if (['image/png', 'image/jpeg'].indexOf(file.type) === -1) return fail('背景画像は PNG または JPEG を選択してください。');
+  if (file.size > BG_MAX_BYTES) return fail('背景画像は 8MB 以下にしてください。');
+  try {
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(new Error('ファイルを読み込めませんでした'));
+      reader.readAsDataURL(file);
+    });
+    const image = await ImageGenerator.loadImage(dataUrl);
+    const w = image.naturalWidth, h = image.naturalHeight;
+    if (Math.min(w, h) < 200 || Math.max(w, h) > 8000) return fail('背景画像の大きさは 200〜8000px にしてください。');
+    bgState.pending = { dataBase64: dataUrl.split(',')[1], mimeType: file.type, fileName: file.name, image };
+    document.getElementById('bgStatus').textContent = `未保存の背景: ${file.name}（${w} × ${h} px）`;
+    drawBackgroundPreview();
+    updateBackgroundButtons();
+  } catch (err) {
+    fail(err.message);
+  }
+}
+
+function onBackgroundSettingsInput() {
+  drawBackgroundPreview();
+  updateBackgroundButtons();
+}
+
+function revertBackgroundChanges() {
+  bgState.pending = null;
+  document.getElementById('bgFileInput').value = '';
+  writeBackgroundSettingsToForm(bgState.view && bgState.view.settings);
+  document.getElementById('bgStatus').textContent = describeBackground(bgState.view);
+  drawBackgroundPreview();
+  updateBackgroundButtons();
+}
+
+// 背景プレビュー（縮小）。背景は切り抜かずに全体を収め、配置領域を破線で表示
+function drawBackgroundPreview() {
+  const canvas = document.getElementById('bgPreviewCanvas');
+  const ctx = canvas.getContext('2d');
+  const scale = canvas.width / ImageGenerator.CANVAS.width;
+  const image = bgState.pending ? bgState.pending.image : bgState.image;
+  const settings = readBackgroundSettingsFromForm();
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = settings.fillColor || (image ? ImageGenerator.sampleEdgeColor(image) : '#ffffff');
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  if (image) {
+    const f = ImageGenerator.fitBackground(image.naturalWidth, image.naturalHeight);
+    ctx.drawImage(image, f.x * scale, f.y * scale, f.w * scale, f.h * scale);
+  }
+  if (!validateBackgroundSettings(settings)) {
+    const a = settings.area;
+    ctx.save();
+    ctx.setLineDash([6, 4]);
+    ctx.strokeStyle = '#0d6efd';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(a.left * scale, a.top * scale, (ImageGenerator.CANVAS.width - a.left - a.right) * scale, (ImageGenerator.CANVAS.height - a.top - a.bottom) * scale);
+    ctx.restore();
+  }
+}
+
+async function saveBackgroundSettings() {
+  if (!bgState.view || state.isProcessing) return;
+  const settings = readBackgroundSettingsFromForm();
+  const invalid = validateBackgroundSettings(settings);
+  if (invalid) { showAlert(invalid, 'warning'); return; }
+  const store = bgState.store;
+  const image = bgState.pending ? { dataBase64: bgState.pending.dataBase64, mimeType: bgState.pending.mimeType, fileName: bgState.pending.fileName } : null;
+  try {
+    setProcessing(true, image ? '背景画像を保存中' : '背景設定を保存中');
+    const view = await Api.background.save(store, bgState.view.revision, image, settings);
+    if (bgState.store !== store) return;
+    if (bgState.pending) bgState.image = bgState.pending.image;
+    bgState.pending = null;
+    bgState.view = view;
+    document.getElementById('bgFileInput').value = '';
+    writeBackgroundSettingsToForm(view.settings);
+    document.getElementById('bgStatus').textContent = describeBackground(view);
+    clearGeneratedImage();
+    showAlert(`${store} の背景を保存しました（シフトデータは変更していません）。`, 'success');
+  } catch (err) {
+    if (handleAuthErrorIfAny(err)) return;
+    if (err.code === 'REVISION_CONFLICT') {
+      showAlert('他の端末で背景が更新されています。最新の背景を読み込みました。必要なら選択し直して保存してください。', 'warning');
+      await ensureBackgroundLoaded(store, true);
+    } else {
+      showAlert('背景を保存できませんでした: ' + err.message, 'danger');
+    }
+  } finally {
+    setProcessing(false);
+    drawBackgroundPreview();
+    updateBackgroundButtons();
+  }
+}
+
+async function clearBackgroundImage() {
+  if (!bgState.view || !bgState.view.configured) return;
+  if (!window.confirm(`${bgState.store} の背景の登録を解除します（Drive のファイルは削除しません）。よろしいですか？`)) return;
+  const store = bgState.store;
+  try {
+    setProcessing(true, '背景を解除中');
+    const view = await Api.background.clear(store, bgState.view.revision);
+    if (bgState.store !== store) return;
+    Object.assign(bgState, { view, image: null, pending: null });
+    writeBackgroundSettingsToForm(view.settings);
+    document.getElementById('bgStatus').textContent = describeBackground(view);
+    clearGeneratedImage();
+  } catch (err) {
+    if (handleAuthErrorIfAny(err)) return;
+    if (err.code === 'REVISION_CONFLICT') await ensureBackgroundLoaded(store, true);
+    showAlert('背景を解除できませんでした: ' + err.message, 'danger');
+  } finally {
+    setProcessing(false);
+    drawBackgroundPreview();
+    updateBackgroundButtons();
+  }
+}
+
+function clearGeneratedImage() {
+  bgState.generated = null;
+  const canvas = document.getElementById('generatedCanvas');
+  canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+  canvas.classList.add('is-empty');
+  document.getElementById('pngSaveButton').disabled = true;
+  document.getElementById('generateInfo').textContent = '';
+  const errorEl = document.getElementById('generateError');
+  errorEl.textContent = '';
+  errorEl.classList.add('d-none');
+}
+
+async function generateShiftImage() {
+  const selection = Object.assign({}, state.selection);
+  if (!selection.store || !selection.date || !state.current) { showAlert('店舗と日付を選択してください。', 'warning'); return; }
+  if (isDirty()) { showAlert('未保存の変更があります。「編集保存」してから画像を生成してください（画像は保存済みのシフトから作ります）。', 'warning'); return; }
+  if (bgState.store !== selection.store || !bgState.view) await ensureBackgroundLoaded(selection.store, true);
+  if (bgState.pending || backgroundSettingsChanged()) {
+    showAlert('背景の変更が保存されていません。現在の画面の背景・設定で生成します（保存するまで他の端末には反映されません）。', 'info');
+  }
+  clearGeneratedImage();
+  const errorEl = document.getElementById('generateError');
+  try {
+    setProcessing(true, '写真を取得中');
+    const data = await Api.background.castPhotos(selection.store, selection.date);
+    if (data.store !== selection.store || data.date !== selection.date) throw new Error('取得したデータの店舗・日付が選択と一致しません。');
+    if (data.revision !== state.current.revision) {
+      throw new Error('シフトが他の端末で更新されています。「再読み込み」してから生成してください。');
+    }
+    setProcessing(true, '画像を生成中');
+    const images = {};
+    await Promise.all(Object.keys(data.photos || {}).map(async id => {
+      try { images[id] = await ImageGenerator.loadImage(data.photos[id]); } catch (err) { images[id] = null; }
+    }));
+    const casts = data.casts.map(c => ({ name: c.name, image: (c.fileId && images[c.fileId]) || null }));
+    const settings = readBackgroundSettingsFromForm();
+    const invalid = validateBackgroundSettings(settings);
+    if (invalid) throw Object.assign(new Error(invalid), { code: 'INVALID_AREA' });
+    const canvas = document.getElementById('generatedCanvas');
+    ImageGenerator.render(canvas, {
+      background: bgState.pending ? bgState.pending.image : bgState.image,
+      fillColor: settings.fillColor,
+      area: settings.area,
+      casts
+    });
+    canvas.classList.remove('is-empty');
+    const noPhoto = casts.filter(c => !c.image).length;
+    bgState.generated = { store: selection.store, date: selection.date, count: casts.length };
+    document.getElementById('generateInfo').textContent =
+      `${canvas.width} × ${canvas.height} px / 出勤 ${casts.length}人${noPhoto ? `（写真なし ${noPhoto}人）` : ''}${(bgState.pending ? bgState.pending.image : bgState.image) ? '' : ' / 背景未登録'}`;
+    document.getElementById('pngSaveButton').disabled = false;
+  } catch (err) {
+    if (handleAuthErrorIfAny(err)) return;
+    clearGeneratedImage();
+    errorEl.textContent = '画像を生成できませんでした: ' + err.message;
+    errorEl.classList.remove('d-none');
+  } finally {
+    setProcessing(false);
+  }
+}
+
+async function saveGeneratedPng() {
+  if (!bgState.generated) return;
+  try {
+    const canvas = document.getElementById('generatedCanvas');
+    const blob = await ImageGenerator.toPngBlob(canvas);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `shift_${bgState.generated.store}_${bgState.generated.date}_${canvas.width}x${canvas.height}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  } catch (err) {
+    showAlert('PNG を保存できませんでした: ' + err.message, 'danger');
+  }
 }

@@ -55,6 +55,7 @@ const SpreadsheetService = {
     this.ensureSchemaSheet_(spreadsheet, config.SHEET_SHIFT_EDIT_MANAGE, SHIFT_MANAGE_HEADERS, createdSheets);
     // アクセス権限はヘッダーのみ作成（空 = 全員拒否）。利用者は管理者が明示的に追加する。
     this.ensureSchemaSheet_(spreadsheet, config.SHEET_ACCESS_CONTROL, ACCESS_CONTROL_HEADERS, createdSheets);
+    this.ensureSchemaSheet_(spreadsheet, config.SHEET_BACKGROUND || DEFAULT_CONFIG.SHEET_BACKGROUND, BACKGROUND_HEADERS, createdSheets);
 
     return {
       success: true,
@@ -70,7 +71,8 @@ const SpreadsheetService = {
         config.SHEET_ERROR_LOG,
         config.SHEET_SHIFT_EDIT,
         config.SHEET_SHIFT_EDIT_MANAGE,
-        config.SHEET_ACCESS_CONTROL
+        config.SHEET_ACCESS_CONTROL,
+        config.SHEET_BACKGROUND
       ].filter(Boolean)
     };
   },
@@ -266,7 +268,9 @@ const SpreadsheetService = {
       ['APP_MODE', config.APP_MODE || DEFAULT_CONFIG.APP_MODE, 'text', '動作モード', 'true', now, ''],
       ['SHEET_SHIFT_EDIT', config.SHEET_SHIFT_EDIT || DEFAULT_CONFIG.SHEET_SHIFT_EDIT, 'sheet', '店舗×日付別 編集データ', 'false', now, ''],
       ['SHEET_SHIFT_EDIT_MANAGE', config.SHEET_SHIFT_EDIT_MANAGE || DEFAULT_CONFIG.SHEET_SHIFT_EDIT_MANAGE, 'sheet', '店舗×日付別 保存状態（コミットマーカー）', 'false', now, ''],
-      ['SHEET_ACCESS_CONTROL', config.SHEET_ACCESS_CONTROL || DEFAULT_CONFIG.SHEET_ACCESS_CONTROL, 'sheet', '許可リスト（googleSub / role）', 'false', now, '']
+      ['SHEET_ACCESS_CONTROL', config.SHEET_ACCESS_CONTROL || DEFAULT_CONFIG.SHEET_ACCESS_CONTROL, 'sheet', '許可リスト（googleSub / role）', 'false', now, ''],
+      ['SHEET_BACKGROUND', config.SHEET_BACKGROUND || DEFAULT_CONFIG.SHEET_BACKGROUND, 'sheet', '店舗別 背景画像設定', 'false', now, ''],
+      ['DRIVE_BACKGROUND_FOLDER_ID', config.DRIVE_BACKGROUND_FOLDER_ID || '', 'id', '背景画像の保存フォルダ', 'true', now, 'キャスト画像フォルダとは別のフォルダを指定']
     ];
   }
 };

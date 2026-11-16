@@ -132,6 +132,66 @@
       </div>
     </section>
 
+    <!-- 背景画像・出勤キャスト画像の生成（1447 × 2048 px 固定・人数で自動配置） -->
+    <section id="bgSection" class="card shadow-sm mb-3">
+      <div class="card-header bg-white fw-bold d-flex flex-wrap align-items-center gap-2">
+        <span>背景画像・画像生成</span>
+        <span id="bgStoreLabel" class="badge text-bg-light border"></span>
+        <span class="small text-secondary fw-normal">完成画像は常に 1447 × 2048 px</span>
+      </div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-12 col-lg-5">
+            <div class="fw-bold mb-1">背景（店舗別）</div>
+            <div id="bgStatus" class="small text-secondary mb-2">店舗と日付を選択してください</div>
+            <div class="bg-preview-wrap mb-2">
+              <canvas id="bgPreviewCanvas" class="bg-preview-canvas" width="362" height="512" aria-label="背景プレビュー"></canvas>
+            </div>
+            <label for="bgFileInput" class="form-label small mb-1">背景画像を選択（PNG / JPEG・8MB まで。切り抜かずに全体を収めます）</label>
+            <input id="bgFileInput" type="file" class="form-control form-control-sm mb-2" accept="image/png,image/jpeg">
+            <div class="row g-2 align-items-end mb-2">
+              <div class="col-6 col-md-4">
+                <label for="bgFillColor" class="form-label small mb-1">余白の色</label>
+                <div class="d-flex gap-1 align-items-center">
+                  <input id="bgFillColor" type="color" class="form-control form-control-color form-control-sm" value="#ffffff">
+                  <div class="form-check form-check-inline small mb-0">
+                    <input id="bgFillAuto" class="form-check-input" type="checkbox" checked>
+                    <label for="bgFillAuto" class="form-check-label">自動</label>
+                  </div>
+                </div>
+              </div>
+              <div class="col-12">
+                <div class="small mb-1">配置領域（ヘッダー・フッターを除く範囲・px）</div>
+                <div class="row g-1">
+                  <div class="col-3"><label class="form-label small mb-0" for="bgAreaTop">上</label><input id="bgAreaTop" type="number" min="0" max="1648" class="form-control form-control-sm js-bg-area"></div>
+                  <div class="col-3"><label class="form-label small mb-0" for="bgAreaBottom">下</label><input id="bgAreaBottom" type="number" min="0" max="1648" class="form-control form-control-sm js-bg-area"></div>
+                  <div class="col-3"><label class="form-label small mb-0" for="bgAreaLeft">左</label><input id="bgAreaLeft" type="number" min="0" max="1047" class="form-control form-control-sm js-bg-area"></div>
+                  <div class="col-3"><label class="form-label small mb-0" for="bgAreaRight">右</label><input id="bgAreaRight" type="number" min="0" max="1047" class="form-control form-control-sm js-bg-area"></div>
+                </div>
+              </div>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+              <button id="bgSaveButton" type="button" class="btn btn-sm btn-primary rounded-pill" disabled>背景・設定を保存</button>
+              <button id="bgRevertButton" type="button" class="btn btn-sm btn-outline-secondary rounded-pill" disabled>変更を取り消す</button>
+              <button id="bgClearButton" type="button" class="btn btn-sm btn-outline-danger rounded-pill" title="背景の登録を解除します（ADMIN のみ・Drive のファイルは削除しません）">背景を解除</button>
+            </div>
+          </div>
+          <div class="col-12 col-lg-7">
+            <div class="fw-bold mb-1">出勤キャスト画像</div>
+            <div class="d-flex flex-wrap gap-2 mb-2">
+              <button id="generateButton" type="button" class="btn btn-sm btn-success rounded-pill">画像を生成</button>
+              <button id="pngSaveButton" type="button" class="btn btn-sm btn-outline-success rounded-pill" disabled>PNG で保存</button>
+              <span id="generateInfo" class="small text-secondary align-self-center"></span>
+            </div>
+            <div id="generateError" class="alert alert-danger small d-none" role="alert"></div>
+            <div class="generated-wrap">
+              <canvas id="generatedCanvas" class="generated-canvas" width="1447" height="2048" aria-label="生成した出勤キャスト画像"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- A: SIFT_DATA原本確認（外部取得の元投稿をそのまま表示。編集は反映しない） -->
     <section class="card shadow-sm mb-3">
       <div class="card-header bg-white fw-bold">SIFT_DATA原本確認</div>
@@ -238,6 +298,7 @@
   <script src="assets/js/auth.js?v=20261116-p16"></script>
   <script src="assets/js/api.js?v=20261116-p16"></script>
   <script src="assets/js/shift-state.js?v=20261116-p16"></script>
+  <script src="assets/js/image-generator.js?v=20261116-bg1"></script>
   <script src="assets/js/app.js?v=20261116-p16"></script>
 </body>
 </html>

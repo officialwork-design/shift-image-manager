@@ -21,6 +21,8 @@ function doPost(e) {
  *  - ADMIN のみ : 元データから初期化・画像キャッシュ更新
  */
 const API_ROLES_ANY = ['ADMIN', 'EDITOR'];
+const API_MAX_BODY = 200000;
+const API_MAX_UPLOAD_BODY = 12 * 1024 * 1024;
 const API_ROLES_ADMIN = ['ADMIN'];
 
 const API_PUBLIC_ACTIONS = ['getPublicConfig', 'getConfig'];
@@ -41,6 +43,11 @@ const API_PROTECTED_ACTIONS = {
   saveShift: API_ROLES_ANY,
   setCastAbsent: API_ROLES_ANY,
   checkImages: API_ROLES_ANY,
+  // 背景画像・画像生成（背景の差し替えは編集者も可。解除は ADMIN のみ）
+  getBackground: API_ROLES_ANY,
+  getCastPhotos: API_ROLES_ANY,
+  saveBackground: API_ROLES_ANY,
+  clearBackground: API_ROLES_ADMIN,
   resetShiftFromSource: API_ROLES_ADMIN,
   refreshImageCache: API_ROLES_ADMIN
 };
@@ -96,8 +103,12 @@ const ApiRouter = {
       };
     }
     const body = e && e.postData && e.postData.contents ? e.postData.contents : '{}';
-    if (body.length > 200000) throw Utils.apiError('INVALID_REQUEST', 'リクエストが大きすぎます');
+    // 通常の API は 200KB まで。背景画像のアップロード（saveBackground）のみ 12MB まで（画像 8MB の base64 + JSON）
+    if (body.length > API_MAX_UPLOAD_BODY) throw Utils.apiError('INVALID_REQUEST', 'リクエストが大きすぎます');
     const request = Utils.parseJson(body, {});
+    if (body.length > API_MAX_BODY && String(request.action || '') !== 'saveBackground') {
+      throw Utils.apiError('INVALID_REQUEST', 'リクエストが大きすぎます');
+    }
     return {
       action: String(request.action || '').trim(),
       payload: request.payload && typeof request.payload === 'object' ? request.payload : {},
@@ -163,6 +174,14 @@ const ApiRouter = {
         return ShiftService.resetShiftFromSource(payload.store, payload.date, payload.expectedRevision, payload.confirmation, ctx);
       case 'refreshImageCache':
         return ImageService.refreshCache();
+      case 'getBackground':
+        return BackgroundService.getBackground(payload.store, { includeImage: payload.includeImage !== false });
+      case 'getCastPhotos':
+        return BackgroundService.getCastPhotos(payload.store, payload.date);
+      case 'saveBackground':
+        return BackgroundService.saveBackground(payload, ctx);
+      case 'clearBackground':
+        return BackgroundService.clearBackground(payload, ctx);
       case 'checkImages':
         return ImageService.checkImages(payload.store, payload.date, ctx);
       default:

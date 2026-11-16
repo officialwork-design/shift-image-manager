@@ -284,3 +284,19 @@ GAS/APIで発生したエラーを記録します。
 - 投稿文の表記ゆれを前提に、GAS側で名前抽出時に整形します。
 - 画像ファイル名とキャスト名の一致が重要です。
 - `ID管理` の key 名はコードから参照されるため、安易に変更しないでください。
+
+## 背景設定（店舗別 背景画像・配置領域）
+
+`setupShiftImageManager`（初期シート生成）または最初の背景保存時に作成。店舗ごとに 1 行。シフトデータとは独立。
+
+| 列 | 内容 |
+|---|---|
+| store | KABUKI / AKIBA |
+| fileId / fileName / mimeType | 背景フォルダ内の背景ファイル（PNG / JPEG） |
+| width / height / bytes | 背景画像の実寸（先頭バイトから取得）・サイズ |
+| fillColor | 余白の色（`#rrggbb`。空 = 自動） |
+| areaTop / areaBottom / areaLeft / areaRight | 配置領域（キャンバス 1447×2048 の端からの px） |
+| revision | 更新ごとに +1（同時更新の検出） |
+| updatedAt / updatedBy | 更新日時・更新者（googleSub） |
+
+ID管理: `SHEET_BACKGROUND`（シート名）、`DRIVE_BACKGROUND_FOLDER_ID`（背景フォルダ。キャスト画像フォルダとは別）。

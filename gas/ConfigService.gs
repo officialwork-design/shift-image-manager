@@ -58,7 +58,7 @@ const ConfigService = {
     const sheetConfig = this.readIdManagementConfig_(env.spreadsheetId, env.env === 'test');
     const merged = Object.assign({}, defaults, sheetConfig);
     // ID管理に空欄・未登録のシート名があっても既定値で動かす
-    ['SHEET_SHIFT_EDIT', 'SHEET_SHIFT_EDIT_MANAGE', 'SHEET_ACCESS_CONTROL', 'SHEET_OPERATION_LOG', 'SHEET_ERROR_LOG', 'SHEET_IMAGE_CHECK', 'SHEET_SIFT_DATA', 'SHEET_IMAGE_GENERATION']
+    ['SHEET_SHIFT_EDIT', 'SHEET_SHIFT_EDIT_MANAGE', 'SHEET_ACCESS_CONTROL', 'SHEET_OPERATION_LOG', 'SHEET_ERROR_LOG', 'SHEET_IMAGE_CHECK', 'SHEET_SIFT_DATA', 'SHEET_IMAGE_GENERATION', 'SHEET_BACKGROUND']
       .forEach(key => { if (!merged[key]) merged[key] = DEFAULT_CONFIG[key]; });
     if (env.env === 'test') {
       this.assertNoProductionIds_(sheetConfig);   // ID管理シートに本番の値が持ち込まれていないか
