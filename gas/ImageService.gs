@@ -98,7 +98,7 @@ const ImageService = {
     }
 
     LogService.audit({ action: '画像未登録チェック', store: target.store, date: target.date, revision: saved.revision,
-      user: ctx && ctx.user, result: '成功', detail: 'missingCount=' + missingNames.length });
+      user: ctx && ctx.user, userLabel: ctx && ctx.userLabel, result: '成功', detail: 'missingCount=' + missingNames.length });
     return { success: true, store: target.store, date: target.date, missingCount: missingNames.length, missingNames };
   },
 

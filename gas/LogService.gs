@@ -27,6 +27,14 @@ const LogService = {
    * Phase 1.5 監査ログ（画像操作ログシート。列構成は既存のまま）
    * userId 列 = サーバー側で検証済みの利用者、詳細列 = revision などの JSON
    */
+  // 監査ログの実行者表示用にメールアドレスを短縮する（例: ab***@example.com）
+  maskEmail(email) {
+    const text = String(email || '');
+    const at = text.indexOf('@');
+    if (at < 1) return text ? '***' : '';
+    return text.slice(0, Math.min(2, at)) + '***' + text.slice(at);
+  },
+
   audit(entry) {
     try {
       const e = entry || {};
@@ -42,7 +50,7 @@ const LogService = {
         '',
         e.value || '',
         e.user || '',
-        '',
+        e.userLabel ? this.maskEmail(e.userLabel) : '',
         e.result || '',
         JSON.stringify(detail)
       ]]);

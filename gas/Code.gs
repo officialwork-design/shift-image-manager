@@ -37,7 +37,8 @@ const DEFAULT_CONFIG = {
   APP_MODE: 'production',
   IMAGE_CACHE_SECONDS: 600,
   SHEET_SHIFT_EDIT: 'シフト編集',
-  SHEET_SHIFT_EDIT_MANAGE: 'シフト編集管理'
+  SHEET_SHIFT_EDIT_MANAGE: 'シフト編集管理',
+  SHEET_ACCESS_CONTROL: 'アクセス権限'
 };
 
 // 店舗×日付別 編集データ保存の設定（Phase 1.5）
@@ -84,6 +85,8 @@ function onOpen() {
       .addItem('旧データ移行: バックアップ作成', 'migrationBackup')
       .addItem('旧データ移行: dry-run', 'migrationDryRun')
       .addItem('旧データ移行: 実行', 'migrationExecute')
+      .addSeparator()
+      .addItem('アクセス権限の追加', 'accessControlAddUser')
       .addToUi();
   } catch (err) {
     // Standalone WebApp execution has no spreadsheet UI.

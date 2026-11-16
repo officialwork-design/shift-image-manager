@@ -53,6 +53,8 @@ const SpreadsheetService = {
     this.ensureErrorLogSheet_(spreadsheet, config, createdSheets);
     this.ensureSchemaSheet_(spreadsheet, config.SHEET_SHIFT_EDIT, SHIFT_EDIT_HEADERS, createdSheets);
     this.ensureSchemaSheet_(spreadsheet, config.SHEET_SHIFT_EDIT_MANAGE, SHIFT_MANAGE_HEADERS, createdSheets);
+    // アクセス権限はヘッダーのみ作成（空 = 全員拒否）。利用者は管理者が明示的に追加する。
+    this.ensureSchemaSheet_(spreadsheet, config.SHEET_ACCESS_CONTROL, ACCESS_CONTROL_HEADERS, createdSheets);
 
     return {
       success: true,
@@ -67,7 +69,8 @@ const SpreadsheetService = {
         config.SHEET_IMAGE_CHECK,
         config.SHEET_ERROR_LOG,
         config.SHEET_SHIFT_EDIT,
-        config.SHEET_SHIFT_EDIT_MANAGE
+        config.SHEET_SHIFT_EDIT_MANAGE,
+        config.SHEET_ACCESS_CONTROL
       ].filter(Boolean)
     };
   },
@@ -262,7 +265,8 @@ const SpreadsheetService = {
       ['TIMEZONE', config.TIMEZONE || DEFAULT_CONFIG.TIMEZONE, 'text', 'タイムゾーン', 'false', now, ''],
       ['APP_MODE', config.APP_MODE || DEFAULT_CONFIG.APP_MODE, 'text', '動作モード', 'true', now, ''],
       ['SHEET_SHIFT_EDIT', config.SHEET_SHIFT_EDIT || DEFAULT_CONFIG.SHEET_SHIFT_EDIT, 'sheet', '店舗×日付別 編集データ', 'false', now, ''],
-      ['SHEET_SHIFT_EDIT_MANAGE', config.SHEET_SHIFT_EDIT_MANAGE || DEFAULT_CONFIG.SHEET_SHIFT_EDIT_MANAGE, 'sheet', '店舗×日付別 保存状態（コミットマーカー）', 'false', now, '']
+      ['SHEET_SHIFT_EDIT_MANAGE', config.SHEET_SHIFT_EDIT_MANAGE || DEFAULT_CONFIG.SHEET_SHIFT_EDIT_MANAGE, 'sheet', '店舗×日付別 保存状態（コミットマーカー）', 'false', now, ''],
+      ['SHEET_ACCESS_CONTROL', config.SHEET_ACCESS_CONTROL || DEFAULT_CONFIG.SHEET_ACCESS_CONTROL, 'sheet', '許可リスト（googleSub / role）', 'false', now, '']
     ];
   }
 };

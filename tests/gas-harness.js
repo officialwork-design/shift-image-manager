@@ -79,9 +79,10 @@ function createGasContext(opts) {
   const options = opts || {};
   const ss = options.spreadsheet || new FakeSpreadsheet();
   const cacheStore = options.cacheStore || {};
-  const props = Object.assign({}, options.scriptProperties || {});
+  const props = options.scriptProperties || {};
   const lockState = options.lockState || { held: false, forceTimeout: false };
   let uuidSeq = 0;
+  const fetchLog = options.fetchLog || [];
 
   const context = {
     console,
@@ -118,6 +119,14 @@ function createGasContext(opts) {
       },
       getUuid: () => 'uuid-' + (++uuidSeq),
       newBlob: s => ({ getBytes: () => Buffer.from(String(s), 'utf8') }),
+      DigestAlgorithm: { SHA_256: 'SHA_256' },
+      Charset: { US_ASCII: 'US_ASCII', UTF_8: 'UTF_8' },
+      // GAS と同じく符号付きバイト（-128..127）の配列を返す
+      computeDigest(alg, value, charset) {
+        if (alg !== 'SHA_256') throw new Error('unsupported digest');
+        const buf = require('crypto').createHash('sha256').update(Buffer.from(String(value), charset === 'US_ASCII' ? 'latin1' : 'utf8')).digest();
+        return Array.from(buf).map(b => (b > 127 ? b - 256 : b));
+      },
       base64Encode: b => Buffer.from(b).toString('base64')
     },
     DriveApp: {
@@ -132,11 +141,24 @@ function createGasContext(opts) {
         };
       }
     },
+    UrlFetchApp: {
+      fetch(url, params) {
+        const handler = options.urlFetch;
+        if (!handler) throw new Error('UrlFetchApp not available in this test');
+        fetchLog.push(url);
+        const res = handler(url, params);
+        return {
+          getResponseCode: () => res.status || 200,
+          getContentText: () => res.body || '',
+          getHeaders: () => res.headers || {}
+        };
+      }
+    },
     ContentService: {
       MimeType: { JAVASCRIPT: 'js', JSON: 'json' },
       createTextOutput: body => ({ body, setMimeType() { return this; } })
     },
-    Date, JSON, Math, Object, Array, String, Number, RegExp, Error, SyntaxError, Buffer
+    Date, JSON, Math, Object, Array, String, Number, RegExp, Error, SyntaxError, Buffer, BigInt: options.noBigInt ? undefined : BigInt
   };
   if (options.now) {
     const fixed = new Date(options.now).getTime();
@@ -146,10 +168,10 @@ function createGasContext(opts) {
   const gasDir = path.join(__dirname, '..', 'gas');
   const files = fs.readdirSync(gasDir).filter(f => f.endsWith('.gs')).sort();
   const source = files.map(f => fs.readFileSync(path.join(gasDir, f), 'utf8')).join('\n;\n') +
-    '\n;this.__gas = { ShiftService, ShiftRepository, SiftService, ImageService, AuthService, ApiRouter, MigrationService, ConfigService, LogService, SpreadsheetService, Utils, doGet, doPost, SHIFT_EDIT_HEADERS, SHIFT_MANAGE_HEADERS, SHIFT_STORAGE, setupShiftImageManager };';
+    '\n;this.__gas = { ShiftService, ShiftRepository, SiftService, ImageService, AuthService, ApiRouter, MigrationService, ConfigService, LogService, SpreadsheetService, Utils, doGet, doPost, SHIFT_EDIT_HEADERS, SHIFT_MANAGE_HEADERS, SHIFT_STORAGE, setupShiftImageManager, GoogleIdTokenVerifier, AccessControlService, GOOGLE_ID_TOKEN };';
   vm.createContext(context);
   vm.runInContext(source, context, { filename: 'gas-bundle.js' });
-  return { gas: context.__gas, ss, cacheStore, props, lockState, context };
+  return { gas: context.__gas, ss, cacheStore, props, lockState, context, fetchLog };
 }
 
 // 標準的なテスト用スプレッドシート（SIFT_DATA・画像フォルダ・ログ）

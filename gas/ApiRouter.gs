@@ -7,17 +7,52 @@ function doPost(e) {
 }
 
 /**
- * Phase 1.5 ルーティング
- *  - 読み取り API : GET(JSONP) / POST どちらでも可。副作用なし。
- *  - 更新 API     : POST のみ。AuthService.requireEditor による認証・認可が必須（現在はフェイルクローズ）。
- *  - 旧更新 API   : 対象（店舗・日付・revision）を検証できないものは LEGACY_API_REMOVED で拒否。
+ * Phase 1.6 ルーティング
+ *
+ * 通信方式:
+ *  - GAS の doPost(e) では HTTP ヘッダー（Authorization 等）を取得できないため、
+ *    ID トークンは POST 本文（Content-Type: text/plain の JSON）の auth.idToken で受け取る。
+ *  - URL（クエリ）にトークンを載せない。GET では認証情報を一切受け付けない。
+ *
+ * 公開範囲:
+ *  - PUBLIC     : ログイン前に必要な公開設定のみ（GET/JSONP または POST）
+ *  - 認証必須   : シフト・キャスト・画像情報などの読み取り（POST のみ、ADMIN / EDITOR）
+ *  - 更新権限   : 保存・休み変更・初回作成・画像チェック（POST のみ、ADMIN / EDITOR）
+ *  - ADMIN のみ : 元データから初期化・画像キャッシュ更新
  */
-const API_READ_ACTIONS = ['getConfig', 'getDateList', 'getDateOptions', 'getSiftPreview', 'getSavedShift', 'getShiftSnapshot', 'getImageList'];
-const API_WRITE_ACTIONS = ['initializeShift', 'saveShift', 'setCastAbsent', 'resetShiftFromSource', 'refreshImageCache', 'checkImages', 'changeDateAndStore'];
-const API_AUDITED_ERROR_CODES = ['AUTH_REQUIRED', 'AUTH_INVALID', 'AUTH_NOT_CONFIGURED', 'FORBIDDEN', 'REVISION_CONFLICT', 'METHOD_NOT_ALLOWED', 'LEGACY_API_REMOVED'];
+const API_ROLES_ANY = ['ADMIN', 'EDITOR'];
+const API_ROLES_ADMIN = ['ADMIN'];
+
+const API_PUBLIC_ACTIONS = ['getPublicConfig', 'getConfig'];
+
+// action → 許可ロール（ここに無い action は UNKNOWN_ACTION）
+const API_PROTECTED_ACTIONS = {
+  // 読み取り（認証必須）
+  whoAmI: API_ROLES_ANY,
+  getDateList: API_ROLES_ANY,
+  getDateOptions: API_ROLES_ANY,
+  getSiftPreview: API_ROLES_ANY,
+  getSavedShift: API_ROLES_ANY,
+  getShiftSnapshot: API_ROLES_ANY,
+  getImageList: API_ROLES_ANY,
+  // 更新
+  initializeShift: API_ROLES_ANY,
+  changeDateAndStore: API_ROLES_ANY,   // 旧API互換（initializeShift と同じ・既存データを消さない）
+  saveShift: API_ROLES_ANY,
+  setCastAbsent: API_ROLES_ANY,
+  checkImages: API_ROLES_ANY,
+  resetShiftFromSource: API_ROLES_ADMIN,
+  refreshImageCache: API_ROLES_ADMIN
+};
+
 const API_REMOVED_ACTIONS = {
   updateShiftRows: 'saveShift（store / date / expectedRevision 必須）を使用してください'
 };
+
+// 想定内の拒否は監査ログ（画像操作ログ）、それ以外はエラーログ
+const API_AUDITED_ERROR_CODES = ['AUTH_REQUIRED', 'AUTH_INVALID', 'AUTH_EXPIRED', 'AUTH_NOT_CONFIGURED', 'AUTH_KEYS_UNAVAILABLE',
+  'FORBIDDEN', 'ACCESS_LIST_NOT_CONFIGURED', 'ACCESS_LIST_INVALID', 'ACCESS_LIST_UNAVAILABLE',
+  'REVISION_CONFLICT', 'METHOD_NOT_ALLOWED', 'LEGACY_API_REMOVED'];
 
 const ApiRouter = {
   handle(e, method) {
@@ -25,17 +60,25 @@ const ApiRouter = {
     const params = e && e.parameter ? e.parameter : {};
     const callback = method === 'GET' ? params.callback : '';
     let request = { action: '', payload: {} };
+    let identity = null;
 
     try {
       request = this.parseRequest(e, method);
-      const data = this.dispatch(request, method);
-      return Utils.output(Utils.successResponse(data, new Date() - started), callback);
+      const result = this.dispatch(request, method);
+      identity = result.identity;
+      return Utils.output(Utils.successResponse(result.data, new Date() - started), callback);
     } catch (err) {
       if (!err.code) err.code = (err instanceof SyntaxError) ? 'INVALID_REQUEST' : 'INTERNAL_ERROR';
-      // 認証失敗・権限なし・競合などの「想定内の拒否」は監査ログ、それ以外はエラーログ
+      const payload = request.payload || {};
       if (API_AUDITED_ERROR_CODES.indexOf(err.code) !== -1) {
-        LogService.audit({ action: request.action || '(unknown)', store: (request.payload || {}).store, date: (request.payload || {}).date,
-          revision: (request.payload || {}).expectedRevision, result: '拒否', code: err.code, detail: method });
+        const details = err.details || {};
+        LogService.audit({
+          action: request.action || '(unknown)', store: payload.store, date: payload.date,
+          revision: payload.expectedRevision, result: '拒否', code: err.code,
+          user: identity ? identity.sub : (details.sub || ''),
+          userLabel: identity ? identity.email : (details.email || ''),
+          detail: method + (details.reason ? ' ' + details.reason : '')
+        });
       } else {
         LogService.error(request.action || 'ApiRouter.handle', err, this.getErrorPayload_(e, request, method));
       }
@@ -53,11 +96,12 @@ const ApiRouter = {
       };
     }
     const body = e && e.postData && e.postData.contents ? e.postData.contents : '{}';
+    if (body.length > 200000) throw Utils.apiError('INVALID_REQUEST', 'リクエストが大きすぎます');
     const request = Utils.parseJson(body, {});
     return {
       action: String(request.action || '').trim(),
       payload: request.payload && typeof request.payload === 'object' ? request.payload : {},
-      auth: request.auth || null,
+      auth: request.auth && typeof request.auth === 'object' ? request.auth : null,
       requestId: String(request.requestId || '').slice(0, 100)
     };
   },
@@ -69,24 +113,27 @@ const ApiRouter = {
     if (API_REMOVED_ACTIONS[action]) {
       throw Utils.apiError('LEGACY_API_REMOVED', action + ' は廃止されました。' + API_REMOVED_ACTIONS[action]);
     }
-    if (API_READ_ACTIONS.indexOf(action) !== -1) {
-      return this.routeRead(action, payload);
+    if (API_PUBLIC_ACTIONS.indexOf(action) !== -1) {
+      return { data: ConfigService.getPublicConfig(), identity: null };
     }
-    if (API_WRITE_ACTIONS.indexOf(action) !== -1) {
-      if (method !== 'POST') {
-        throw Utils.apiError('METHOD_NOT_ALLOWED', '更新操作は POST でのみ実行できます');
-      }
-      // 認証・認可を先に行い、未認証の呼び出し元には入力検証の詳細を返さない。入力検証は各サービスで実施。
-      const identity = AuthService.requireEditor(request.auth);
-      return this.routeWrite(action, payload, { user: identity.email, requestId: request.requestId || '' });
+    const allowedRoles = API_PROTECTED_ACTIONS[action];
+    if (!allowedRoles) throw Utils.apiError('UNKNOWN_ACTION', 'Unknown action: ' + action);
+    if (method !== 'POST') {
+      throw Utils.apiError('METHOD_NOT_ALLOWED', 'この操作は POST でのみ実行できます');
     }
-    throw Utils.apiError('UNKNOWN_ACTION', 'Unknown action: ' + action);
+
+    // 認証（署名検証）→ 認可（許可リスト・ロール）を、すべての処理より先に完了させる
+    const identity = AuthService.requireRole(request.auth, allowedRoles);
+    const ctx = { user: identity.sub, userLabel: identity.email, role: identity.role, requestId: request.requestId || '' };
+    return { data: this.route(action, payload, ctx, identity), identity };
   },
 
-  routeRead(action, payload) {
+  route(action, payload, ctx, identity) {
     switch (action) {
-      case 'getConfig':
-        return ConfigService.getPublicConfig();
+      case 'whoAmI':
+        LogService.audit({ action: 'ログイン確認', user: identity.sub, userLabel: identity.email, result: '成功',
+          detail: 'role=' + identity.role + (identity.emailMismatch ? ' email-mismatch' : '') });
+        return { sub: identity.sub, email: identity.email, role: identity.role };
       case 'getDateList':
         return SiftService.getDateList();
       case 'getDateOptions':
@@ -99,15 +146,8 @@ const ApiRouter = {
         return ShiftService.getImageList(payload.store, payload.date);
       case 'getShiftSnapshot':
         return ShiftService.getShiftSnapshot(payload.store, payload.date);
-      default:
-        throw Utils.apiError('UNKNOWN_ACTION', 'Unknown action: ' + action);
-    }
-  },
-
-  routeWrite(action, payload, ctx) {
-    switch (action) {
       case 'initializeShift':
-      case 'changeDateAndStore':   // 旧API互換: 既存データを消さない初回作成として動作
+      case 'changeDateAndStore':
         return ShiftService.initializeShift(payload.store, payload.date, ctx);
       case 'saveShift':
         return ShiftService.saveShift(payload.store, payload.date, payload.expectedRevision, payload.rows, ctx);

@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { setup, secondTerminal, callGet, callPost, EDITOR } = require('./fixtures');
+const { setup, secondTerminal, callGet, callPost, EDITOR, ADMIN, tokenFor } = require('./fixtures');
 const { createGasContext, FakeSpreadsheet, seedSpreadsheet } = require('./gas-harness');
 const plain = v => JSON.parse(JSON.stringify(v));
 
@@ -33,35 +33,44 @@ test('名前正規化: 投稿テンプレートの定型文・見出しはキャ
 });
 
 // ---------- API 安全性 ----------
-test('API: 認証方式が未設定（既定）のとき更新 API はすべて AUTH_NOT_CONFIGURED', () => {
+test('API: 認証方式が未設定のとき更新 API はすべて AUTH_NOT_CONFIGURED', () => {
   const h = setup({ noAuth: true });
   const writes = ['initializeShift', 'saveShift', 'setCastAbsent', 'resetShiftFromSource', 'refreshImageCache', 'checkImages', 'changeDateAndStore'];
   for (const action of writes) {
-    const res = callPost(h, action, { store: 'KABUKI', date: '2026-11-16', expectedRevision: 0, rows: [] }, { auth: { idToken: 'secret-token-value' } });
+    const res = callPost(h, action, { store: 'KABUKI', date: '2026-11-16', expectedRevision: 0, rows: [] }, { auth: { idToken: tokenFor('admin') } });
     assert.equal(res.success, false, action);
     assert.equal(res.code, 'AUTH_NOT_CONFIGURED', action);
   }
-  // AUTH_MODE を設定しても検証器が未実装なので拒否（フェイルクローズ）
+  // AUTH_MODE を設定してもクライアントIDが未設定・形式不正なら拒否（フェイルクローズ）
   h.props.AUTH_MODE = 'google_id_token';
-  assert.equal(callPost(h, 'saveShift', {}, { auth: { idToken: 'x' } }).code, 'AUTH_NOT_CONFIGURED');
+  assert.equal(callPost(h, 'saveShift', {}, { auth: { idToken: tokenFor('admin') } }).code, 'AUTH_NOT_CONFIGURED');
+  h.props.GOOGLE_OAUTH_CLIENT_ID = 'not-a-client-id';
+  assert.equal(callPost(h, 'saveShift', {}, { auth: { idToken: tokenFor('admin') } }).code, 'AUTH_NOT_CONFIGURED');
+  assert.equal(callPost(h, 'getPublicConfig', {}).data.authConfigured, false);
   assert.equal(h.ss.getSheetByName('シフト編集管理').getLastRow(), 1, '何も書き込まれていない');
 });
 
-test('API: 未認証・権限なしの更新は拒否、監査ログに記録、トークン実値はログに残らない', () => {
+test('API: 未認証・未許可の更新は拒否、監査ログに記録、トークン実値はログに残らない', () => {
   const h = setup();
   assert.equal(callPost(h, 'initializeShift', { store: 'KABUKI', date: '2026-11-16' }).code, 'AUTH_REQUIRED');
-  assert.equal(callPost(h, 'initializeShift', { store: 'KABUKI', date: '2026-11-16' }, { auth: { testUser: 'stranger@example.com', idToken: 'secret-token-value' } }).code, 'FORBIDDEN');
+  const strangerToken = tokenFor('stranger');
+  const res = callPost(h, 'initializeShift', { store: 'KABUKI', date: '2026-11-16' }, { auth: { idToken: strangerToken } });
+  assert.equal(res.code, 'FORBIDDEN');
+  assert.equal(res.status, 403);
+  assert.equal(res.error.details.reason, 'NOT_REGISTERED');
   assert.equal(h.ss.getSheetByName('シフト編集管理').getLastRow(), 1);
   const logs = JSON.stringify(h.ss.getSheetByName('画像操作ログ').rows) + JSON.stringify(h.ss.getSheetByName('エラーログ').rows);
   assert.match(logs, /FORBIDDEN/);
   assert.match(logs, /AUTH_REQUIRED/);
-  assert.doesNotMatch(logs, /secret-token-value/);
+  assert.ok(!logs.includes(strangerToken), 'トークン実値がログにない');
+  assert.ok(!logs.includes(strangerToken.split('.')[2]), '署名部分もログにない');
+  assert.ok(!logs.includes('stranger@example.com'), 'メールアドレスは短縮表示');
 });
 
 test('API: GET / JSONP による更新は METHOD_NOT_ALLOWED（認証情報があっても）', () => {
   const h = setup();
   for (const action of ['initializeShift', 'saveShift', 'setCastAbsent', 'resetShiftFromSource', 'refreshImageCache', 'checkImages', 'changeDateAndStore']) {
-    const res = callGet(h, action, { store: 'KABUKI', date: '2026-11-16', auth: { testUser: 'editor@example.com' } });
+    const res = callGet(h, action, { store: 'KABUKI', date: '2026-11-16', auth: { idToken: tokenFor('admin') } });
     assert.equal(res.code, 'METHOD_NOT_ALLOWED', action);
   }
   assert.equal(h.ss.getSheetByName('シフト編集管理').getLastRow(), 1);
@@ -109,31 +118,52 @@ test('API: 認証済みの正常フロー（POST）と不正入力の拒否', ()
   assert.equal(conflict.message, '他の端末または画面で編集内容が更新されています。最新データを確認してから、もう一度保存してください。');
 });
 
-test('API: 読み取り API は GET で利用でき、書き込みを行わない・公開設定に ID を含めない', () => {
+test('API: 読み取り API は認証必須（POST のみ）・書き込みを行わない・公開設定に ID を含めない', () => {
   const h = setup();
   callPost(h, 'initializeShift', { store: 'KABUKI', date: '2026-11-16' }, EDITOR);
-  const dataSheets = () => JSON.stringify(Object.fromEntries(Object.entries(h.ss.sheets).filter(([k]) => k !== 'エラーログ').map(([k, v]) => [k, v.rows])));
+  const dataSheets = () => JSON.stringify(Object.fromEntries(Object.entries(h.ss.sheets).filter(([k]) => !['エラーログ', '画像操作ログ'].includes(k)).map(([k, v]) => [k, v.rows])));
   const before = dataSheets();
-  const cfg = callGet(h, 'getConfig', {});
-  assert.equal(cfg.success, true);
-  assert.equal(cfg.data.SPREADSHEET_ID, undefined);
-  assert.equal(cfg.data.DRIVE_IMAGE_FOLDER_ID, undefined);
-  assert.equal(callGet(h, 'getSavedShift', { store: 'KABUKI', date: '2026-11-16' }).data.revision, 1);
-  assert.equal(callGet(h, 'getSavedShift', { store: 'AKIBA', date: '2026-11-16' }).data.initialized, false);
-  assert.equal(callGet(h, 'getShiftSnapshot', { store: 'KABUKI', date: '2026-11-16' }).data.casts.length, 5);
-  assert.equal(callGet(h, 'getImageList', { store: 'KABUKI', date: '2026-11-16' }).data.editRows.length, 5);
-  assert.equal(callGet(h, 'getSiftPreview', { store: 'KABUKI', date: '2026-11-16' }).data.posts.length, 1);
-  assert.equal(callGet(h, 'getDateOptions', {}).success, true);
-  assert.equal(callGet(h, 'getImageList', {}).code, 'INVALID_STORE', '店舗・日付の省略（旧シート参照）は不可');
-  assert.equal(dataSheets(), before, 'エラーログ以外のシートは不変');
+  for (const method of ['GET', 'POST']) {
+    const cfg = method === 'GET' ? callGet(h, 'getConfig', {}) : callPost(h, 'getPublicConfig', {});
+    assert.equal(cfg.success, true);
+    assert.equal(cfg.data.SPREADSHEET_ID, undefined);
+    assert.equal(cfg.data.DRIVE_IMAGE_FOLDER_ID, undefined);
+    assert.equal(cfg.data.googleClientId, '123456789012-testclient.apps.googleusercontent.com');
+    assert.equal(cfg.data.authConfigured, true);
+  }
+  const reads = ['getDateList', 'getDateOptions', 'getSiftPreview', 'getSavedShift', 'getShiftSnapshot', 'getImageList', 'whoAmI'];
+  const p = { store: 'KABUKI', date: '2026-11-16' };
+  for (const action of reads) {
+    assert.equal(callGet(h, action, p).code, 'METHOD_NOT_ALLOWED', 'GET ' + action);
+    assert.equal(callPost(h, action, p).code, 'AUTH_REQUIRED', '未認証 ' + action);
+    assert.equal(callPost(h, action, p, { auth: { idToken: tokenFor('stranger') } }).code, 'FORBIDDEN', '未許可 ' + action);
+  }
+  assert.equal(callPost(h, 'getSavedShift', p, EDITOR).data.revision, 1);
+  assert.equal(callPost(h, 'getSavedShift', { store: 'AKIBA', date: '2026-11-16' }, EDITOR).data.initialized, false);
+  assert.equal(callPost(h, 'getShiftSnapshot', p, EDITOR).data.casts.length, 5);
+  assert.equal(callPost(h, 'getImageList', p, EDITOR).data.editRows.length, 5);
+  assert.equal(callPost(h, 'getSiftPreview', p, EDITOR).data.posts.length, 1);
+  assert.equal(callPost(h, 'getDateOptions', {}, EDITOR).success, true);
+  assert.equal(callPost(h, 'getImageList', {}, EDITOR).code, 'INVALID_STORE', '店舗・日付の省略（旧シート参照）は不可');
+  assert.deepEqual(plain(callPost(h, 'whoAmI', {}, ADMIN).data), { sub: '100000000000000000001', email: 'admin@example.com', role: 'ADMIN' });
+  assert.equal(dataSheets(), before, 'ログ以外のシートは不変');
 });
 
-test('API: 認可は Script Properties の許可リスト（大文字小文字無視）', () => {
+test('API: ロール別の権限（EDITOR は初期化・キャッシュ更新不可、ADMIN は可）', () => {
   const h = setup();
-  h.props.SHIFT_EDITOR_EMAILS = 'Editor@Example.com, second@example.com';
-  assert.equal(callPost(h, 'initializeShift', { store: 'KABUKI', date: '2026-11-16' }, { auth: { testUser: 'second@example.com' } }).success, true);
-  h.props.SHIFT_EDITOR_EMAILS = '';
-  assert.equal(callPost(h, 'initializeShift', { store: 'AKIBA', date: '2026-11-16' }, EDITOR).code, 'FORBIDDEN');
+  const init = callPost(h, 'initializeShift', { store: 'KABUKI', date: '2026-11-16' }, EDITOR);
+  assert.equal(init.success, true);
+  const saved = callPost(h, 'saveShift', { store: 'KABUKI', date: '2026-11-16', expectedRevision: 1, rows: init.data.editRows.slice(0, 2) }, EDITOR);
+  assert.equal(saved.data.revision, 2, 'EDITOR は保存できる');
+  assert.equal(callPost(h, 'setCastAbsent', { store: 'KABUKI', date: '2026-11-16', recordId: saved.data.editRows[0].recordId, isAbsent: true, expectedRevision: 2 }, EDITOR).data.revision, 3);
+  const denied = callPost(h, 'resetShiftFromSource', { store: 'KABUKI', date: '2026-11-16', expectedRevision: 3, confirmation: 'KABUKI:2026-11-16' }, EDITOR);
+  assert.equal(denied.code, 'FORBIDDEN'); assert.equal(denied.error.details.reason, 'ROLE');
+  assert.equal(callPost(h, 'refreshImageCache', {}, EDITOR).code, 'FORBIDDEN');
+  assert.equal(h.gas.ShiftService.getSavedShift('KABUKI', '2026-11-16').revision, 3, '拒否時は変更なし');
+  const reset = callPost(h, 'resetShiftFromSource', { store: 'KABUKI', date: '2026-11-16', expectedRevision: 3, confirmation: 'KABUKI:2026-11-16' }, ADMIN);
+  assert.equal(reset.success, true); assert.equal(reset.data.editRows.length, 5);
+  assert.equal(callPost(h, 'refreshImageCache', {}, ADMIN).success, true);
+  assert.match(JSON.stringify(h.ss.getSheetByName('シフト編集管理').rows), /100000000000000000001/, '更新者は sub で記録');
 });
 
 // ---------- 画像キャッシュ ----------

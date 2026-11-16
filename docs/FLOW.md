@@ -18,22 +18,38 @@ Google Spreadsheet
 Google Drive
 ```
 
-## 2. 初期表示フロー
+## 2. 初期表示・ログインフロー（Phase 1.6）
 
 ```text
-index.html 読み込み
+index.html 読み込み（Google Identity Services / Bootstrap / auth.js / api.js / app.js）
 ↓
-Bootstrap / CSS / JS 読み込み
+getPublicConfig（公開 API）→ authConfigured / googleClientId
+  未設定 → 「ログイン機能が利用できません」
 ↓
-config.js 読み込み
+GIS 初期化（auto_select）→ 以前ログインした利用者は自動でログイン、それ以外はログインボタン
 ↓
-app.js 起動
+ID トークン（メモリのみ）取得
 ↓
-getDateOptions 実行（年付き日付。年を確定できない日付は選択不可）
-↓
-店舗・日付セレクトを初期化
-↓
-画面を操作可能にする
+whoAmI（POST・認証）
+  GAS: 署名検証 → iss/aud/azp/exp/iat/sub/email/email_verified → 許可リスト（sub）→ ロール
+  OK        → シフト画面を表示（利用者・ロール表示）→ getDateOptions
+  未登録など → 「利用権限がありません」＋本人のメール・利用者ID（管理者へ登録依頼）
+  不正・期限切れ → ログインボタン
+```
+
+### 2-1. トークン期限切れ（約1時間）
+
+```text
+API 送信前に残り60秒未満なら送らない → 再ログイン帯を表示（画面・未保存の入力はそのまま）
+サーバーが AUTH_EXPIRED / AUTH_INVALID → 同上
+再ログイン（同じアカウント）→ whoAmI → 帯を閉じる → 利用者がもう一度保存
+別のアカウントでログイン → 画面のデータを消去して読み込み直し
+```
+
+### 2-2. ログアウト
+
+```text
+未保存の変更があれば確認 → GIS 自動選択を無効化 → トークン・利用者・画面のシフトデータを消去 → ログイン画面
 ```
 
 ## 3. 店舗・日付選択フロー（Phase 1.5）
@@ -48,7 +64,7 @@ getDateOptions 実行（年付き日付。年を確定できない日付は選�
           保存して移動 → 現在の店舗・日付に saveShift → 失敗なら移動しない
           キャンセル  → セレクトを元に戻す（入力は保持）
 ↓
-getSavedShift（読み取りのみ）
+getSavedShift（POST・認証必須・読み取りのみ）
 ↓
 initialized = true  → 保存データを表示（SIFT_DATA から作り直さない）
 initialized = false → initializeShift（POST・認証必須）
@@ -259,7 +275,7 @@ GAS_WEB_APP_URL を ID管理 / config.js に反映
 ## 14. GAS責務分離
 
 ```text
-ApiRouter.gs  →  AuthService.gs（更新系の認証・認可）
+ApiRouter.gs  →  AuthService.gs → GoogleIdTokenVerifier.gs（署名検証）/ AccessControlService.gs（許可リスト）
 ↓
 ConfigService.gs / SpreadsheetService.gs
 ↓
@@ -326,7 +342,7 @@ resetShiftFromSource(store, date, expectedRevision, confirmation)
 
 ```text
 saveShift(store, date, expectedRevision, rows, requestId)
-↓ 認証・認可（POST のみ）
+↓ 認証（ID トークン署名検証）・認可（許可リスト・ロール）（POST のみ）
 ↓ 入力検証（時間・状態・画像ID・人数）
 ↓ LockService.tryLock(10秒)  失敗 → LOCK_TIMEOUT（書き込みなし）
 ↓ 管理行を再取得

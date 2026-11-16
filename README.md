@@ -2,8 +2,8 @@
 
 SIFT_DATA の投稿文から店舗・日付別の出勤キャストを抽出し、Google Drive の画像と紐付けて画像シフトを管理する Web システムです。
 
-> **Phase 1.5（店舗×日付別の編集データ永続保存・安全化）はローカル実装のみで、本番（GAS / Spreadsheet / GitHub Pages）には未反映です。**
-> 更新系 API は認証方式の承認まで拒否される設計です。詳細は下記「Phase 1.5」と [docs/AUTH_DESIGN.md](docs/AUTH_DESIGN.md)。
+> **Phase 1.5（店舗×日付別の編集データ永続保存）と Phase 1.6（Google ログイン・許可リスト）はローカル実装のみで、本番（GAS / Spreadsheet / GitHub Pages / Google Cloud）には未反映です。**
+> 実 GAS・実 Google ログインでの検証は未実施です。詳細は下記「Phase 1.5」「Phase 1.6」と [docs/AUTH_DESIGN.md](docs/AUTH_DESIGN.md)。
 
 ## 構成
 
@@ -60,6 +60,7 @@ shift-image-manager/
 │   ├── css/
 │   │   └── style.css
 │   └── js/
+│       ├── auth.js          # Google ログイン状態管理（Phase 1.6）
 │       ├── api.js
 │       ├── shift-state.js   # 未保存検出などの純粋ロジック（Phase 1.5）
 │       └── app.js
@@ -68,7 +69,7 @@ shift-image-manager/
 │   ├── API.md
 │   ├── SHEET.md
 │   ├── FLOW.md
-│   └── AUTH_DESIGN.md       # 認証・認可の設計案（承認待ち）
+│   └── AUTH_DESIGN.md       # 認証・認可の設計・設定手順（Phase 1.6）
 └── gas/
     ├── Code.gs
     ├── ApiRouter.gs
@@ -78,7 +79,9 @@ shift-image-manager/
     ├── ImageService.gs
     ├── ShiftService.gs
     ├── ShiftRepository.gs   # 店舗×日付別 保存層（Phase 1.5）
-    ├── AuthService.gs       # 更新系の認証・認可（Phase 1.5・フェイルクローズ）
+    ├── AuthService.gs           # 認証・認可の入口（Phase 1.6）
+    ├── GoogleIdTokenVerifier.gs # Google ID トークン署名検証（Phase 1.6）
+    ├── AccessControlService.gs  # 許可リスト（アクセス権限シート）（Phase 1.6）
     ├── MigrationService.gs  # 旧「画像生成」シートからの移行（Phase 1.5）
     ├── LogService.gs
     ├── Utils.gs
@@ -230,7 +233,7 @@ clasp deploy
 
 # Phase 1.5: 店舗×日付別の編集データ永続保存・安全化
 
-**状態: ローカル実装・テスト完了 / 本番反映は未実施 / 認証方式は設計承認待ち**
+**状態: ローカル実装・テスト完了 / 本番反映は未実施**（認証は Phase 1.6 で実装。下記 9・10 章は Phase 1.6 で置き換え）
 
 ## 1. システム構成（Phase 1.5）
 
@@ -287,18 +290,11 @@ GAS WebApp ApiRouter ──▶ AuthService（更新系のみ・現在は全拒�
 
 ## 9. 認証・認可
 
-- 更新系 API は POST のみ。`AuthService.requireEditor` でサーバー側の本人確認 → 許可リストで認可。
-- 現在は検証器が未実装のため **すべての更新を `AUTH_NOT_CONFIGURED` で拒否**（フェイルクローズ）。
-- GitHub Pages + GAS の現構成では安全な本人確認が成立しないため、方式は承認待ち（推奨: Google ID トークン検証）。docs/AUTH_DESIGN.md 参照。
-- クライアントが送るメールアドレスは信用しない。トークン実値はログで伏字。
+Phase 1.6 で実装（下記「Phase 1.6」参照）。
 
 ## 10. Script Properties（キー名のみ）
 
-| キー | 用途 |
-|---|---|
-| `AUTH_MODE` | 認証方式（未設定 = 更新拒否） |
-| `SHIFT_EDITOR_EMAILS` | 更新を許可する利用者（カンマ/改行区切り） |
-| `GOOGLE_OAUTH_CLIENT_ID` | ID トークン検証用（承認後） |
+Phase 1.6「7. Script Properties」参照（`SHIFT_EDITOR_EMAILS` は廃止）。
 
 ## 11. 初回データ生成
 
@@ -343,7 +339,7 @@ CDN_DIR=/path/to/node_modules npm run test:e2e   # Chromium E2E（playwright と
 
 ## 17. デプロイ手順（承認後に実施）
 
-1. 認証方式の承認と設定（docs/AUTH_DESIGN.md）。承認前に本番へ反映すると、更新操作がすべて拒否されます。
+1. Phase 1.6 と同時に反映する（下記「Phase 1.6 本番反映手順」）。
 2. スプレッドシートのバックアップ作成。
 3. テスト用コピー（スプレッドシート + GAS）で `clasp push` → テストデプロイで動作確認。
 4. 本番: `clasp push` → メニュー「初期シート生成」（シフト編集 / シフト編集管理 を作成。既存シートは変更しない）→ 移行（14章）。
@@ -362,7 +358,7 @@ CDN_DIR=/path/to/node_modules npm run test:e2e   # Chromium E2E（playwright と
 
 | 症状 / コード | 原因 | 対処 |
 |---|---|---|
-| AUTH_NOT_CONFIGURED | 認証方式が未設定（現状の既定） | 承認後に AUTH_MODE 等を設定 |
+| AUTH_* / FORBIDDEN | 認証・認可エラー | 下記「Phase 1.6 トラブルシュート」 |
 | REVISION_CONFLICT | 他端末・他画面が先に保存 | 「最新データを表示」で比較 → 置き換えて再入力・保存 |
 | LOCK_TIMEOUT | 他の保存処理が実行中 | 数秒待って再試行 |
 | DATA_INCONSISTENT | 管理行の rowCount と行数が不一致（手作業編集など） | シートの版の履歴から復元、または管理者が管理行と行を確認 |
@@ -370,3 +366,127 @@ CDN_DIR=/path/to/node_modules npm run test:e2e   # Chromium E2E（playwright と
 | SETUP_REQUIRED / SCHEMA_MISMATCH | 新シート未作成・ヘッダー不一致 | 「初期シート生成」を実行／ヘッダーを修正 |
 | 日付が選択できない（年を確定できません） | SIFT_DATA の日付が今日±185日の範囲外、または曜日不一致 | SIFT_DATA の表記を確認 |
 | 画像キャッシュの警告（IMAGE_CACHE_SKIPPED） | 画像索引が 100KB 超 | 動作は継続（Drive を毎回走査するため遅くなる）。画像フォルダ整理を検討 |
+
+
+---
+
+# Phase 1.6: Google ログイン認証・許可リスト認可
+
+**状態: ローカル実装・モックテスト完了 / 実 GAS・実 Google ログインでの検証は未実施 / 本番未反映**
+
+詳細設計は [docs/AUTH_DESIGN.md](docs/AUTH_DESIGN.md)。以下は運用手順の要約です（設定値の実値は記載しません）。
+
+## 1. Google ログインの仕組み
+
+GitHub Pages で Google Identity Services（Sign In With Google）によりログイン → ID トークン（約1時間有効）を POST 本文で GAS に送信 → GAS が Google 公開鍵で署名とクレームを検証 → 「アクセス権限」シートの googleSub と role で認可 → 処理。トークンはブラウザのメモリにのみ保持します。
+
+## 2. Google Cloud OAuth 設定手順
+
+Cloud Console →「API とサービス」→ OAuth 同意画面を設定 →「認証情報」→ OAuth クライアント ID（ウェブ アプリケーション）を作成。クライアントシークレットは使いません。テスト用と本番用でクライアントIDを分けます（AUTH_DESIGN 3 章）。
+
+## 3. OAuth 同意画面
+
+組織内のみなら「内部」、個人アカウントも使うなら「外部」。スコープの追加は不要（`openid email profile`）。外部・テスト中はテストユーザーを登録（AUTH_DESIGN 4 章）。
+
+## 4. OAuth クライアントIDの設定
+
+GAS の Script Properties `GOOGLE_OAUTH_CLIENT_ID` に設定。フロントは公開 API `getPublicConfig` から取得するため `config.js` への記載は不要（aud の不一致を防ぐため設定箇所は1か所）。
+
+## 5. 承認済みの JavaScript 生成元
+
+本番 `https://officialwork-design.github.io`（パスなし）。テスト用は別クライアントIDに登録。
+
+## 6. GAS 側の設定
+
+- `appsscript.json` に `script.external_request` スコープを追加（ローカル変更済み・反映時に再承認が必要）
+- WebApp の公開設定は現状維持（全員・匿名／自分として実行）
+- メニュー「初期シート生成」で「アクセス権限」シートを作成（空 = 全員拒否）
+
+## 7. Script Properties（キー名のみ）
+
+| キー | 値 |
+|---|---|
+| `AUTH_MODE` | `google_id_token`（未設定・他の値は全拒否） |
+| `GOOGLE_OAUTH_CLIENT_ID` | OAuth クライアントID |
+
+## 8. 許可リストのシート構成
+
+「アクセス権限」: `googleSub | email | role | enabled | createdAt | updatedAt | note`（docs/SHEET.md 6-4）
+
+## 9. 初期 ADMIN 登録手順
+
+1. 管理者本人がログイン →「利用権限がありません」画面に表示されたメールと利用者ID（sub）を確認
+2. スプレッドシートの編集者がメニュー「アクセス権限の追加」で sub・メール・ADMIN を登録
+3. 再読み込みしてログイン
+
+## 10. ADMIN / EDITOR の権限
+
+| | ADMIN | EDITOR |
+|---|:-:|:-:|
+| 閲覧・編集保存・休み変更・画像選択・初回作成・画像未登録チェック | ○ | ○ |
+| 元データから初期化・画像キャッシュ更新 | ○ | × |
+| 許可リスト管理 | シートの編集権限による | |
+
+## 11. ID トークンの検証方式
+
+JWKS（`https://www.googleapis.com/oauth2/v3/certs`、CacheService でキャッシュ）を使った RS256 署名検証（RFC 8017、全バイト比較）＋ iss / aud / azp / exp / iat / sub / email / email_verified の検証（AUTH_DESIGN 11 章）。
+
+## 12. API 通信方式
+
+すべて POST・`text/plain`・本文に `auth.idToken`。独自ヘッダー・URL クエリ・Cookie は使わない。公開設定以外の GET は `METHOD_NOT_ALLOWED`。
+
+## 13. CORS 制約
+
+`Authorization` ヘッダーや `application/json` はプリフライトが発生し GAS では処理できないため使わない。GAS は 302 で googleusercontent.com に転送し `Access-Control-Allow-Origin: *` で応答するため、`credentials: 'omit'` の fetch で応答を読める（AUTH_DESIGN 13 章）。
+
+## 14. GAS 公開設定
+
+`ANYONE_ANONYMOUS` / `USER_DEPLOYING` を維持。アクセス制御は ID トークン検証と許可リストで行う。
+
+## 15. テスト環境の構築手順（作成前に承認が必要）
+
+テスト用 Spreadsheet・GAS・OAuth クライアントIDを用意し、テスト用 WebApp とテスト用ページで確認（AUTH_DESIGN 15 章）。
+
+## 16. ローカルテスト手順
+
+```bash
+npm test                                                # 単体・API・認証（モック）
+CDN_DIR=/path/to/node_modules npm run test:e2e          # Chromium E2E（GIS・GAS はモック）
+```
+E2E には playwright と `bootstrap@5.3.3` / `html2canvas@1.4.1` のローカルコピーが必要です。テストのトークンはテスト用に生成した RSA 鍵で署名したもので、本物の Google アカウントは使いません。
+
+## 17. 本番反映手順（承認後に実施）
+
+1. テスト環境で 15 章の確認を完了し、結果の承認を得る
+2. 本番用 OAuth クライアントID を作成（生成元: GitHub Pages）
+3. 本番スプレッドシートのバックアップ
+4. `clasp push`（gas/ 一式。マニフェストのスコープ追加を含む）→ エディタで任意の関数を実行して再承認
+5. Script Properties に `AUTH_MODE` / `GOOGLE_OAUTH_CLIENT_ID` を設定
+6. メニュー「初期シート生成」→「アクセス権限」作成 → 初期 ADMIN 登録（9 章）→ 旧データ移行（Phase 1.5 14 章）
+7. WebApp を新しいバージョンでデプロイ（既存デプロイの更新で URL を維持）
+8. GitHub Pages（index.html / assets / config.js）を同時に反映
+9. ADMIN・EDITOR・未登録アカウントで動作確認
+
+## 18. ロールバック手順
+
+1. GAS:「デプロイを管理」で直前のバージョンに戻す（URL 不変）
+2. GitHub Pages: 直前のコミットに戻す
+3. Script Properties の `AUTH_MODE` を削除すると、新しい版のままでも全 API が拒否される（緊急停止）
+4. 追加したシート（アクセス権限・シフト編集等）は旧版に影響しないため残してよい
+5. OAuth クライアントIDは削除不要（使われなくなるだけ）
+
+## 19. 認証エラーのトラブルシュート
+
+| 症状 / コード | 主な原因 | 対処 |
+|---|---|---|
+| ログインボタンが出ない | GIS スクリプトが読めない（広告ブロック・通信）、生成元未登録 | ブラウザ設定、OAuth クライアントの生成元を確認 |
+| 「ログイン機能が利用できません」 | `AUTH_MODE` / `GOOGLE_OAUTH_CLIENT_ID` 未設定・形式不正 | Script Properties を確認 |
+| AUTH_INVALID（このアプリ向けではない） | クライアントIDの不一致（テスト用と本番用の取り違え） | Script Properties とログイン画面のクライアントIDを一致させる |
+| AUTH_EXPIRED | トークン期限切れ（約1時間） | 画面の再ログインボタン。入力は残る |
+| AUTH_KEYS_UNAVAILABLE | Google 公開鍵の取得失敗、`script.external_request` 未承認 | 再承認・時間をおいて再試行 |
+| AUTH_NOT_CONFIGURED（BigInt 未対応） | 実行環境が V8 でない | `appsscript.json` の `runtimeVersion: V8` を確認 |
+| FORBIDDEN / NOT_REGISTERED・SUB_MISMATCH | 許可リスト未登録・sub の取り違え | 画面の利用者IDで登録（メールでは照合しない） |
+| FORBIDDEN / DISABLED・DUPLICATE_SUB・INVALID_ROLE・INVALID_SUB | 許可リストの内容 | enabled・重複・role・A列の書式（書式なしテキスト）を確認 |
+| FORBIDDEN / ROLE | EDITOR が ADMIN 専用操作 | ADMIN に依頼 |
+| ACCESS_LIST_NOT_CONFIGURED / INVALID | シートなし・ヘッダー不正 | 「初期シート生成」・ヘッダー修正 |
+| 再読み込み後に毎回ログインが必要 | ブラウザが自動選択（FedCM / サードパーティ Cookie）を制限 | 仕様。ボタンからログイン |

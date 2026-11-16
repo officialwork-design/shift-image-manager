@@ -56,18 +56,41 @@
     return { key, requestId: generate() };
   }
 
+  const AUTH_RELOGIN_CODES = ['AUTH_REQUIRED', 'AUTH_INVALID', 'AUTH_EXPIRED'];
+  const ACCESS_CODES = ['FORBIDDEN', 'ACCESS_LIST_EMPTY', 'ACCESS_LIST_NOT_CONFIGURED', 'ACCESS_LIST_INVALID', 'ACCESS_LIST_UNAVAILABLE'];
+
   function classifyError(err) {
     const code = (err && err.code) || '';
+    const message = (err && err.message) || '';
     if (code === 'REVISION_CONFLICT') return { kind: 'conflict', message: CONFLICT_MESSAGE };
-    if (['AUTH_REQUIRED', 'AUTH_INVALID', 'AUTH_NOT_CONFIGURED'].indexOf(code) !== -1) {
-      return { kind: 'auth', message: '更新するにはログインが必要です（' + ((err && err.message) || code) + '）' };
+    if (AUTH_RELOGIN_CODES.indexOf(code) !== -1) {
+      return { kind: 'relogin', message: code === 'AUTH_EXPIRED'
+        ? 'ログインの有効期限が切れました。もう一度ログインしてください（入力中の内容は残っています）。'
+        : 'ログインが必要です。Google アカウントでログインしてください（入力中の内容は残っています）。' };
     }
-    if (code === 'FORBIDDEN') return { kind: 'auth', message: 'この操作を行う権限がありません。' };
-    if (code === 'LOCK_TIMEOUT') return { kind: 'lock', message: (err && err.message) || '他の保存処理が実行中です。' };
-    if (code === 'NOT_INITIALIZED') return { kind: 'notInitialized', message: (err && err.message) || '保存データがありません。' };
-    if (code === 'TIMEOUT' || code === 'NETWORK') return { kind: 'network', message: (err && err.message) || '通信に失敗しました。' };
-    return { kind: 'other', message: (err && err.message) || 'エラーが発生しました。' };
+    if (ACCESS_CODES.indexOf(code) !== -1) {
+      const reason = err && err.details && err.details.reason;
+      if (reason === 'ROLE') return { kind: 'role', message: message || 'この操作を行う権限がありません。' };
+      return { kind: 'forbidden', message: message || 'このアカウントには利用権限がありません。' };
+    }
+    if (code === 'AUTH_NOT_CONFIGURED' || code === 'AUTH_UNAVAILABLE' || code === 'AUTH_KEYS_UNAVAILABLE') {
+      return { kind: 'authUnavailable', message: message || 'ログイン機能を利用できません。' };
+    }
+    if (code === 'LOCK_TIMEOUT') return { kind: 'lock', message: message || '他の保存処理が実行中です。' };
+    if (code === 'NOT_INITIALIZED') return { kind: 'notInitialized', message: message || '保存データがありません。' };
+    if (code === 'TIMEOUT' || code === 'NETWORK') return { kind: 'network', message: message || '通信に失敗しました。' };
+    return { kind: 'other', message: message || 'エラーが発生しました。' };
   }
 
-  return { CONFLICT_MESSAGE, rowsSignature, isDirty, buildSavePayload, applyStatusLocally, sameSelection, requestIdFor, classifyError };
+  // 画面の操作可否（ロール別）
+  function permissionsFor(role) {
+    return {
+      canView: role === 'ADMIN' || role === 'EDITOR',
+      canEdit: role === 'ADMIN' || role === 'EDITOR',
+      canReset: role === 'ADMIN',
+      canRefreshCache: role === 'ADMIN'
+    };
+  }
+
+  return { CONFLICT_MESSAGE, rowsSignature, isDirty, buildSavePayload, applyStatusLocally, sameSelection, requestIdFor, classifyError, permissionsFor };
 });

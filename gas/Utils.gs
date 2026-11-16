@@ -17,6 +17,8 @@ const Utils = {
       data: null,
       message,
       code,
+      // GAS WebApp は HTTP ステータスを指定できないため、相当する値をアプリケーションレベルで返す
+      status: this.statusForCode(code),
       error: {
         code,
         message,
@@ -60,6 +62,18 @@ const Utils = {
     if (STORE_NAMES.indexOf(String(store).toUpperCase()) === -1) {
       throw new Error('店舗は KABUKI または AKIBA を指定してください');
     }
+  },
+
+  statusForCode(code) {
+    const map = {
+      AUTH_REQUIRED: 401, AUTH_INVALID: 401, AUTH_EXPIRED: 401,
+      FORBIDDEN: 403, ACCESS_LIST_EMPTY: 403, ACCESS_LIST_NOT_CONFIGURED: 403, ACCESS_LIST_INVALID: 403, ACCESS_LIST_UNAVAILABLE: 503,
+      METHOD_NOT_ALLOWED: 405, LEGACY_API_REMOVED: 410, UNKNOWN_ACTION: 404,
+      REVISION_CONFLICT: 409, LOCK_TIMEOUT: 423,
+      AUTH_NOT_CONFIGURED: 503, AUTH_KEYS_UNAVAILABLE: 503,
+      INTERNAL_ERROR: 500, WRITE_VERIFY_FAILED: 500, DATA_INCONSISTENT: 500
+    };
+    return map[code] || 400;
   },
 
   // ===== Phase 1.5: エラーコード付き例外 =====

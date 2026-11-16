@@ -1,30 +1,24 @@
-# API仕様書（Phase 1.5）
+# API仕様書（Phase 1.6）
 
-> **本番反映: 未実施。** 本書はローカル実装（ブランチ `local/phase1.5-shift-persistence`）の仕様です。
-> 更新系 API は認証方式の承認まで **すべて `AUTH_NOT_CONFIGURED` で拒否** されます（[AUTH_DESIGN.md](AUTH_DESIGN.md)）。
+> **本番反映: 未実施。** 本書はローカル実装（ブランチ `local/phase1.6-google-auth`）の仕様です。
+> 認証・認可の詳細は [AUTH_DESIGN.md](AUTH_DESIGN.md)。
 
 ## 1. 基本方針
 
 - エンドポイント: GAS WebApp の `/exec`（`config.js` の `GAS_WEB_APP_URL`）
-- **読み取り API**: GET（JSONP）または POST。副作用なし。認証不要。
-- **更新 API**: **POST のみ**。GET / JSONP で呼ぶと `METHOD_NOT_ALLOWED`。サーバー側で認証・認可（`AuthService.requireEditor`）。
-- 日付は内部・API とも **`YYYY-MM-DD`**。画面表示は `M月D日(曜)`（レスポンスの `dateLabel`）。
-- 店舗は `KABUKI` / `AKIBA` の完全一致のみ。
+- **すべての API は POST**（`Content-Type: text/plain;charset=utf-8`、本文は JSON）。独自ヘッダー・URL クエリは使わない。
+- **公開 API**（`getPublicConfig` / `getConfig`）のみ認証不要。GET（JSONP）でも取得可。
+- **それ以外はすべて Google ID トークン必須**（読み取りを含む）。トークンは本文の `auth.idToken`。GET で呼ぶと `METHOD_NOT_ALLOWED`。
+- 認証（署名検証）→ 認可（許可リスト・ロール）→ 入力検証 → 処理 の順。認可が完了するまで読み書きは一切行わない。
+- 日付は `YYYY-MM-DD`、店舗は `KABUKI` / `AKIBA` の完全一致のみ。
 
 ## 2. リクエスト形式
 
-### 読み取り（JSONP）
-```text
-{GAS_WEB_APP_URL}?action=getSavedShift&payload={"store":"KABUKI","date":"2026-11-16"}&callback=cb
-```
-GET では認証情報を受け付けません（URL・履歴・ログに残るため）。
-
-### 更新（POST, Content-Type: text/plain）
 ```json
 {
   "action": "saveShift",
   "payload": { "store": "KABUKI", "date": "2026-11-16", "expectedRevision": 3, "rows": [] },
-  "auth": { "idToken": "（承認後の方式で取得。ログには残さない）" },
+  "auth": { "idToken": "（Google Identity Services の credential。ログには残さない）" },
   "requestId": "再送判定用のID（同じ内容の再送は同じ値）"
 }
 ```
@@ -35,31 +29,35 @@ GET では認証情報を受け付けません（URL・履歴・ログに残る�
 { "success": true, "data": {}, "error": null, "elapsedMs": 120, "timestamp": "2026/11/16 12:00:00" }
 ```
 ```json
-{ "success": false, "data": null, "code": "REVISION_CONFLICT", "message": "…",
+{ "success": false, "data": null, "code": "REVISION_CONFLICT", "status": 409, "message": "…",
   "error": { "code": "REVISION_CONFLICT", "message": "…", "action": "saveShift", "details": { "expectedRevision": 3, "currentRevision": 4 } } }
 ```
 
+`status` は GAS が HTTP ステータスを返せないための「相当値」です（401 再ログイン、403 権限なし、409 競合 など）。HTTP 自体は常に 200。
+
 ## 4. Action 一覧
 
-| action | 種別 | 状態 | 概要 |
+| action | 必要なロール | 状態 | 概要 |
 |---|---|---|---|
-| getConfig | 読取 | 変更 | 公開設定（Spreadsheet ID・フォルダID は返さない） |
-| getDateList | 読取 | 維持 | SIFT_DATA の `M月D日(曜)` 一覧（年なし） |
-| getDateOptions | 読取 | **新規** | 年付き日付一覧 `[{label, date, ok, reason}]` |
-| getSiftPreview | 読取 | 変更 | `date` は YYYY-MM-DD |
-| getSavedShift | 読取 | **新規** | 店舗×日付の保存データ（画面表示用） |
-| getShiftSnapshot | 読取 | **新規** | 投稿文・画像生成用の読み取り専用スナップショット |
-| getImageList | 読取 | 互換 | `getSavedShift` と同じ。store / date 必須（旧シート参照なし） |
-| initializeShift | 更新 | **新規** | 保存データが無い場合のみ SIFT_DATA から作成 |
-| saveShift | 更新 | **新規** | 店舗×日付の編集内容を保存（revision 検証） |
-| setCastAbsent | 更新 | 変更 | recordId 指定で休み/出勤を変更（revision 検証） |
-| resetShiftFromSource | 更新 | **新規** | 明示確認付きで SIFT_DATA から再生成 |
-| refreshImageCache | 更新 | 認証必須化 | Drive 画像キャッシュ更新 |
-| checkImages | 更新 | 変更 | store / date 必須。画像チェックシートへ追記 |
-| changeDateAndStore | 更新 | 互換 | `initializeShift` と同じ（**既存データを消さない**） |
+| getPublicConfig | 公開 | **新規** | ログイン前に必要な公開設定（`authConfigured`, `googleClientId`, 店舗, 時間候補） |
+| getConfig | 公開 | 変更 | `getPublicConfig` と同じ（Spreadsheet ID・フォルダID は返さない） |
+| whoAmI | ADMIN / EDITOR | **新規** | 検証済みの `{ sub, email, role }` |
+| getDateList | ADMIN / EDITOR | 認証必須化 | SIFT_DATA の `M月D日(曜)` 一覧（年なし） |
+| getDateOptions | ADMIN / EDITOR | 認証必須化 | 年付き日付一覧 `[{label, date, ok, reason}]` |
+| getSiftPreview | ADMIN / EDITOR | 認証必須化 | `date` は YYYY-MM-DD |
+| getSavedShift | ADMIN / EDITOR | 認証必須化 | 店舗×日付の保存データ（画面表示用） |
+| getShiftSnapshot | ADMIN / EDITOR | 認証必須化 | 投稿文・画像生成用の読み取り専用スナップショット |
+| getImageList | ADMIN / EDITOR | 認証必須化 | `getSavedShift` と同じ。store / date 必須（旧シート参照なし） |
+| initializeShift | ADMIN / EDITOR | 維持 | 保存データが無い場合のみ SIFT_DATA から作成 |
+| saveShift | ADMIN / EDITOR | 維持 | 店舗×日付の編集内容を保存（revision 検証） |
+| setCastAbsent | ADMIN / EDITOR | 維持 | recordId 指定で休み/出勤を変更（revision 検証） |
+| resetShiftFromSource | **ADMIN** | ADMIN 限定化 | 明示確認付きで SIFT_DATA から再生成 |
+| refreshImageCache | **ADMIN** | ADMIN 限定化 | Drive 画像キャッシュ更新 |
+| checkImages | ADMIN / EDITOR | 維持 | store / date 必須。画像チェックシートへ追記 |
+| changeDateAndStore | ADMIN / EDITOR | 互換 | `initializeShift` と同じ（**既存データを消さない**） |
 | updateShiftRows | – | **廃止** | `LEGACY_API_REMOVED`。`saveShift` を使用 |
 
-## 5. 読み取り API
+## 5. 読み取り API（すべて認証必須・POST）
 
 ### getDateOptions
 - payload: `{}`
@@ -91,7 +89,7 @@ GET では認証情報を受け付けません（URL・履歴・ログに残る�
 
 ## 6. 更新 API
 
-共通: 認証・認可 → 入力検証 → `LockService`（最大10秒）→ ロック内で最新 revision を再取得・検証 → 書き込み。
+共通: 認証（ID トークン署名検証）・認可（許可リスト・ロール）→ 入力検証 → `LockService`（最大10秒）→ ロック内で最新 revision を再取得・検証 → 書き込み。
 
 | action | payload | 成功時 data |
 |---|---|---|
@@ -111,9 +109,14 @@ GET では認証情報を受け付けません（URL・履歴・ログに残る�
 
 | code | 意味 | 画面の扱い |
 |---|---|---|
-| AUTH_NOT_CONFIGURED | 認証方式が未設定（現状の既定） | 「ログインが必要」と表示 |
-| AUTH_REQUIRED / AUTH_INVALID | 認証情報なし／不正 | 同上 |
-| FORBIDDEN | 許可リストにない利用者 | 権限なしと表示 |
+| AUTH_NOT_CONFIGURED (503) | 認証が未設定（AUTH_MODE / クライアントID）・BigInt 非対応 | ログイン機能が利用できない旨を表示 |
+| AUTH_REQUIRED (401) | トークンなし | ログインボタン |
+| AUTH_INVALID (401) | 形式・署名・iss・aud・azp・iat・sub・email・email_verified が不正 | 再ログイン |
+| AUTH_EXPIRED (401) | 有効期限切れ | 再ログイン（入力は保持） |
+| AUTH_KEYS_UNAVAILABLE (503) | Google 公開鍵を取得できない | 時間をおいて再試行 |
+| FORBIDDEN (403) | 許可リスト未登録・無効・sub 不一致・重複・不正ロール・ロール不足（`details.reason`） | 権限なし画面（本人の利用者IDを表示）／ロール不足は警告のみ |
+| ACCESS_LIST_NOT_CONFIGURED / ACCESS_LIST_INVALID (403)、ACCESS_LIST_UNAVAILABLE (503) | 許可リストのシートなし・列構成不正・読み取り失敗（全員拒否） | 管理者対応 |
+| METHOD_NOT_ALLOWED (405) | 保護 API を GET で呼んだ | – |
 | METHOD_NOT_ALLOWED | 更新 API を GET で呼んだ | – |
 | LEGACY_API_REMOVED | 廃止 API | – |
 | INVALID_STORE / INVALID_DATE / AMBIGUOUS_DATE | 入力不正 | エラー表示 |
@@ -130,10 +133,11 @@ GET では認証情報を受け付けません（URL・履歴・ログに残る�
 
 | 旧 API | 対応 |
 |---|---|
-| changeDateAndStore | 維持（認証・POST 必須）。**初期化ではなく「無ければ作成」** に変更。旧フロントから呼ばれても保存データは消えない |
-| getImageList | 維持（読み取り）。store / date 必須 |
+| changeDateAndStore | 維持（認証・POST・ADMIN/EDITOR 必須）。**「無ければ作成」**（保存データを消さない） |
+| getImageList | 維持（認証必須・POST）。store / date 必須 |
+| getDateList / getSiftPreview 等の GET（JSONP） | **廃止**（Phase 1.6）。POST＋認証に移行 |
 | updateShiftRows | 廃止。店舗・日付・revision を持たず安全に維持できないため |
 | setCastAbsent（row 指定） | 廃止。recordId / store / date / expectedRevision 必須 |
 | refreshImageCache / checkImages | 維持（認証・POST 必須）。checkImages は store / date 必須 |
 
-旧フロント（`app.js` 旧版）は更新操作ができなくなるため、GAS とフロントは **同時に** 反映する（README「デプロイ手順」）。
+旧フロント（Phase 1.5 以前の `app.js`）は認証を送らないため、新 GAS では読み取りもできない。GAS とフロントは **同時に** 反映する。

@@ -4,7 +4,10 @@ const state = {
   savedSignature: null,   // 保存済み内容の署名（未保存変更の検出用）
   pendingSave: null,      // 再送時に同じ requestId を使うための情報
   conflictLatest: null,
-  isProcessing: false
+  isProcessing: false,
+  identity: null,         // サーバーで検証済みの利用者 { sub, email, role }（Phase 1.6）
+  authView: 'loading',
+  datesLoaded: false
 };
 
 const WORK_TIME_OPTIONS = [
@@ -113,9 +116,190 @@ async function boot() {
     event.preventDefault();
     event.returnValue = '';
   });
-  await loadDateList();
+  Api.setTokenProvider(() => Auth.getToken());
+  Auth.onChange(onAuthChange);
   updateSaveState();
-  setStatus('準備完了', 'success');
+  await startAuth();
+}
+
+// ===== Google ログイン（Phase 1.6） =====
+async function startAuth() {
+  setAuthView('loading');
+  try {
+    const config = await Api.publicCall('getPublicConfig');
+    if (!config.authConfigured || !config.googleClientId) {
+      setAuthView('notConfigured', 'ログイン機能が設定されていません。管理者に連絡してください。');
+      return;
+    }
+    await Auth.init({ clientId: config.googleClientId, buttonElement: document.getElementById('gsiButton') });
+    if (!Auth.hasToken() && state.authView === 'loading') setAuthView('signedOut');
+    setStatus('準備完了', 'success');
+  } catch (err) {
+    setAuthView('error', err.message || 'ログイン機能を読み込めませんでした。');
+    setStatus('エラー', 'danger');
+  }
+}
+
+async function onAuthChange(event, detail) {
+  if (event === 'signedIn') {
+    if (detail.accountChanged) {
+      if (isDirty()) showAlert('別のアカウントでログインしたため、未保存の変更を破棄しました。', 'warning');
+      clearShiftData();
+      state.identity = null;
+    }
+    await verifySignIn();
+  } else if (event === 'expired') {
+    if (state.identity) setAuthView('expired');
+    else setAuthView('signedOut');
+  } else if (event === 'signedOut') {
+    state.identity = null;
+    clearShiftData();
+    setAuthView('signedOut', 'ログアウトしました。');
+  } else if (event === 'error') {
+    setAuthView(state.identity ? 'expired' : 'signedOut', detail && detail.message);
+  }
+}
+
+// サーバーで ID トークンの署名・許可リスト・ロールを確認する
+async function verifySignIn() {
+  const resumeAfterExpiry = state.authView === 'expired' && !!state.identity;
+  setAuthView(resumeAfterExpiry ? 'expired' : 'verifying');
+  try {
+    const me = await Api.call('whoAmI');
+    if (state.identity && state.identity.sub !== me.sub) clearShiftData();
+    state.identity = me;
+    setAuthView('signedIn');
+    if (resumeAfterExpiry) showAlert('再ログインしました。入力中の内容はそのまま残っています。必要に応じて保存してください。', 'success');
+    if (!state.datesLoaded) await loadDateList();
+  } catch (err) {
+    handleAuthFailure(err);
+  }
+}
+
+function handleAuthFailure(err) {
+  const info = ShiftState.classifyError(err);
+  if (info.kind === 'relogin') {
+    Auth.expire();
+    setAuthView(state.identity ? 'expired' : 'signedOut', info.message);
+  } else if (info.kind === 'forbidden') {
+    state.identity = null;
+    clearShiftData();
+    setAuthView('forbidden', info.message, err.details);
+  } else {
+    setAuthView(state.identity ? 'expired' : 'error', info.message);
+  }
+}
+
+// 認証状態に応じて画面を切り替える
+// loading / signedOut / verifying / signedIn / expired / forbidden / notConfigured / error
+function setAuthView(view, message, details) {
+  state.authView = view;
+  const showApp = view === 'signedIn' || view === 'expired';
+  document.getElementById('appContent').classList.toggle('d-none', !showApp);
+  document.getElementById('authPanel').classList.toggle('d-none', showApp);
+  document.getElementById('reloginBanner').classList.toggle('d-none', view !== 'expired');
+
+  const titles = {
+    loading: 'ログイン機能を読み込み中…',
+    signedOut: 'Google アカウントでログインしてください',
+    verifying: 'ログイン情報を確認中…',
+    forbidden: 'このアカウントには利用権限がありません',
+    notConfigured: 'ログイン機能が利用できません',
+    error: 'ログイン機能が利用できません'
+  };
+  if (!showApp) {
+    document.getElementById('authTitle').textContent = titles[view] || '';
+    document.getElementById('authSpinner').classList.toggle('d-none', !(view === 'loading' || view === 'verifying'));
+    document.getElementById('gsiButtonWrap').classList.toggle('d-none', !(view === 'signedOut' || view === 'forbidden' || view === 'error'));
+    document.getElementById('authRetryButton').classList.toggle('d-none', view !== 'error');
+  }
+  const messageEl = document.getElementById(view === 'expired' ? 'reloginMessage' : 'authMessage');
+  if (messageEl) messageEl.textContent = message || (view === 'expired' ? 'ログインの有効期限が切れました。もう一度ログインしてください（入力中の内容は残っています）。' : '');
+  if (view !== 'expired') document.getElementById('authMessage').textContent = message || defaultAuthMessage(view);
+
+  const detailEl = document.getElementById('authDetails');
+  if (view === 'forbidden' && details && details.sub) {
+    detailEl.innerHTML = `
+      <div class="small">管理者に次の情報を伝えて登録を依頼してください。</div>
+      <dl class="row small mb-0 mt-2">
+        <dt class="col-4">メール</dt><dd class="col-8 text-break" id="authDetailEmail">${escapeHtml(details.email || '')}</dd>
+        <dt class="col-4">利用者ID</dt><dd class="col-8 text-break font-monospace" id="authDetailSub">${escapeHtml(details.sub)}</dd>
+      </dl>`;
+    detailEl.classList.remove('d-none');
+  } else {
+    detailEl.innerHTML = '';
+    detailEl.classList.add('d-none');
+  }
+
+  if (view === 'signedOut' || view === 'forbidden' || view === 'error') Auth.renderButton(document.getElementById('gsiButton'));
+  if (view === 'expired') Auth.renderButton(document.getElementById('gsiButtonRelogin'));
+
+  const signedIn = view === 'signedIn' || view === 'expired';
+  const userBadge = document.getElementById('userBadge');
+  userBadge.classList.toggle('d-none', !signedIn || !state.identity);
+  if (state.identity) {
+    document.getElementById('userEmail').textContent = state.identity.email;
+    document.getElementById('userRole').textContent = state.identity.role;
+  }
+  document.getElementById('logoutButton').classList.toggle('d-none', !signedIn && view !== 'forbidden');
+  applyRoleUi();
+}
+
+function defaultAuthMessage(view) {
+  if (view === 'signedOut') return 'シフトの閲覧・編集には、管理者に登録された Google アカウントでのログインが必要です。';
+  if (view === 'verifying') return 'しばらくお待ちください。';
+  return '';
+}
+
+function applyRoleUi() {
+  const perms = ShiftState.permissionsFor(state.identity && state.identity.role);
+  const resetButton = document.getElementById('resetFromSourceButton');
+  resetButton.disabled = !perms.canReset;
+  resetButton.title = perms.canReset ? '' : '元データからの初期化は ADMIN のみ実行できます';
+  document.getElementById('resetAdminNote').classList.toggle('d-none', perms.canReset || !state.identity);
+}
+
+function logout() {
+  if (isDirty() && !window.confirm('未保存の変更があります。ログアウトすると失われます。ログアウトしますか？')) return;
+  state.savedSignature = null;   // 確認済みのため以降の警告を出さない
+  Auth.signOut();
+}
+
+// ログアウト・アカウント切替時に画面上のシフトデータを消す
+function clearShiftData() {
+  state.current = null;
+  state.selection = { store: '', date: '' };
+  state.savedSignature = null;
+  state.pendingSave = null;
+  state.conflictLatest = null;
+  state.datesLoaded = false;
+  hideConflict();
+  document.getElementById('editTableArea').innerHTML = '<div class="text-secondary text-center py-4">店舗と日付を選択してください</div>';
+  document.getElementById('photoGrid').innerHTML = '<div class="text-secondary text-center py-4">店舗と日付を選択してください</div>';
+  document.getElementById('activeList').innerHTML = '';
+  document.getElementById('absentList').innerHTML = '';
+  document.getElementById('editSiftTableArea').innerHTML = '';
+  document.getElementById('editSiftPostPreview').textContent = '';
+  document.getElementById('siftPreviewSelect').innerHTML = '';
+  document.getElementById('siftPreviewBody').textContent = '';
+  document.getElementById('alertArea').innerHTML = '';
+  document.getElementById('datePicker').innerHTML = '<option value="">ログイン後に表示</option>';
+  updateSaveState();
+}
+
+// API エラー共通処理。認証系なら再ログイン導線を出して true を返す（画面の入力は消さない）
+function handleAuthErrorIfAny(err) {
+  const info = ShiftState.classifyError(err);
+  if (info.kind === 'relogin') {
+    Auth.expire();
+    setAuthView(state.identity ? 'expired' : 'signedOut', info.message);
+    return true;
+  }
+  if (info.kind === 'forbidden') {
+    handleAuthFailure(err);
+    return true;
+  }
+  return false;
 }
 
 function renderAddCastOptions() {
@@ -154,6 +338,8 @@ function bindEvents() {
   document.getElementById('conflictShowLatestButton').addEventListener('click', showLatestForComparison);
   document.getElementById('conflictReplaceButton').addEventListener('click', replaceWithLatest);
   document.getElementById('conflictCloseButton').addEventListener('click', hideConflict);
+  document.getElementById('logoutButton').addEventListener('click', logout);
+  document.getElementById('authRetryButton').addEventListener('click', startAuth);
 
   // 出勤中 / 休み一覧のボタン（イベント委譲・recordId で対象を特定）
   ['activeList', 'absentList'].forEach(id => {
@@ -202,13 +388,15 @@ async function loadDateList() {
 
   try {
     setStatus('日付取得中', 'secondary');
-    const options = await Api.read('getDateOptions');
+    const options = await Api.call('getDateOptions');
+    state.datesLoaded = true;
     renderDateOptions(Array.isArray(options) && options.length ? options : fallback);
     const ambiguous = (options || []).filter(o => !o.ok);
     if (ambiguous.length) {
       showAlert(`年を確定できない日付があるため選択できません: ${ambiguous.map(o => o.label).join('、')}`, 'warning');
     }
   } catch (err) {
+    if (handleAuthErrorIfAny(err)) return;
     renderDateOptions(fallback);
     showAlert('APIから日付を取得できなかったため、日本時間の今月分を表示しています。' + err.message, 'warning');
     setStatus('日付は日本時間で生成', 'warning');
@@ -267,7 +455,7 @@ function revertPickers() {
 
 async function onSelectionChange() {
   const next = getPickerSelection();
-  if (state.isProcessing) {           // 処理中の切り替えは受け付けない（画面と表示データの不一致を防ぐ）
+  if (state.isProcessing || state.authView !== 'signedIn') {   // 未ログイン・再ログイン待ちの間は切り替えない           // 処理中の切り替えは受け付けない（画面と表示データの不一致を防ぐ）
     revertPickers();
     return;
   }
@@ -295,12 +483,13 @@ async function loadShift(selection) {
   try {
     setProcessing(true, `${selection.store} / ${selection.date} 読み込み中`);
     hideConflict();
-    let data = await Api.read('getSavedShift', selection);
+    let data = await Api.call('getSavedShift', selection);
     if (!data.initialized) {
       try {
         setProcessing(true, `${selection.store} / ${selection.date} 初回データ作成中`);
-        data = await Api.write('initializeShift', selection, { requestId: Api.newRequestId() });
+        data = await Api.call('initializeShift', selection, { requestId: Api.newRequestId() });
       } catch (err) {
+        if (handleAuthErrorIfAny(err)) throw err;
         const info = ShiftState.classifyError(err);
         if (err.code === 'SIFT_NOT_FOUND') showAlert('SIFT_DATAにこの店舗・日付の投稿がありません。キャストを追加して保存できます。', 'warning');
         else showAlert(`保存データがありません。${info.message}`, 'warning');
@@ -312,7 +501,7 @@ async function loadShift(selection) {
     await loadSiftPreview(selection);
     setStatus(`同期 ${data.updatedAt || ''}`, 'success');
   } catch (err) {
-    showAlert(err.message, 'danger');
+    if (!handleAuthErrorIfAny(err)) showAlert(err.message, 'danger');
     setStatus('エラー', 'danger');
     revertPickers();
   } finally {
@@ -346,7 +535,7 @@ async function loadSiftPreview(selection) {
   const body = document.getElementById('siftPreviewBody');
   let posts = [];
   try {
-    const data = await Api.read('getSiftPreview', selection);
+    const data = await Api.call('getSiftPreview', selection);
     posts = data.posts || [];
   } catch (err) {
     posts = [];
@@ -461,7 +650,8 @@ async function saveEditRows() {
 
   try {
     setProcessing(true, '編集内容を保存中');
-    const data = await Api.write('saveShift', payload, { requestId: state.pendingSave.requestId });
+    setSavingBadge();
+    const data = await Api.call('saveShift', payload, { requestId: state.pendingSave.requestId });
     assertDataMatches(data, selection);
     applyData(data);
     hideConflict();
@@ -476,7 +666,15 @@ async function saveEditRows() {
   }
 }
 
+function setSavingBadge() {
+  const el = document.getElementById('saveState');
+  if (!el) return;
+  el.className = 'badge text-bg-info save-state';
+  el.textContent = '保存中…';
+}
+
 function handleWriteError(err) {
+  if (handleAuthErrorIfAny(err)) return;
   const info = ShiftState.classifyError(err);
   if (info.kind === 'conflict') {
     showConflict(info.message);
@@ -505,7 +703,7 @@ function hideConflict() {
 async function showLatestForComparison() {
   try {
     setProcessing(true, '最新データを取得中');
-    const latest = await Api.read('getSavedShift', state.selection);
+    const latest = await Api.call('getSavedShift', state.selection);
     assertDataMatches(latest, state.selection);
     state.conflictLatest = latest;
     const rows = latest.editRows || [];
@@ -519,7 +717,7 @@ async function showLatestForComparison() {
       </table>` : `<div class="text-secondary">最新データ: キャストなし（rev ${latest.revision}）</div>`;
     document.getElementById('conflictReplaceButton').disabled = false;
   } catch (err) {
-    showAlert(err.message, 'danger');
+    if (!handleAuthErrorIfAny(err)) showAlert(err.message, 'danger');
   } finally {
     setProcessing(false);
   }
@@ -535,6 +733,10 @@ function replaceWithLatest() {
 
 // ===== 元データから初期化（明示操作のみ） =====
 function openResetDialog() {
+  if (!ShiftState.permissionsFor(state.identity && state.identity.role).canReset) {
+    showAlert('元データからの初期化は ADMIN のみ実行できます。', 'warning');
+    return;
+  }
   if (!state.current || !state.selection.store) {
     showAlert('店舗と日付を選択してください。', 'warning');
     return;
@@ -562,7 +764,7 @@ async function resetFromSource() {
 
   try {
     setProcessing(true, '元データから初期化中');
-    const data = await Api.write('resetShiftFromSource', {
+    const data = await Api.call('resetShiftFromSource', {
       store: selection.store,
       date: selection.date,
       expectedRevision: state.current.revision,
@@ -1065,7 +1267,7 @@ async function toggleAbsent(recordId, toAbsent) {
   const selection = Object.assign({}, state.selection);
   try {
     setProcessing(true, '更新中');
-    const data = await Api.write('setCastAbsent', {
+    const data = await Api.call('setCastAbsent', {
       store: selection.store,
       date: selection.date,
       recordId,
@@ -1100,7 +1302,7 @@ async function checkImages() {
   }
   try {
     setProcessing(true, '画像確認中');
-    const result = await Api.write('checkImages', { store: state.selection.store, date: state.selection.date }, { requestId: Api.newRequestId() });
+    const result = await Api.call('checkImages', { store: state.selection.store, date: state.selection.date }, { requestId: Api.newRequestId() });
     showAlert(
       result.missingCount ? `画像未登録: ${result.missingNames.join('、')}` : '画像未登録はありません。',
       result.missingCount ? 'warning' : 'success'

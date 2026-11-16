@@ -1,5 +1,20 @@
 'use strict';
 const { createGasContext, FakeSpreadsheet, seedSpreadsheet } = require('./gas-harness');
+const { CLIENT_ID, makeToken, jwksHandler, USERS, KEYS } = require('./jwt-test-utils');
+
+const FIXED_NOW = '2026-11-16T03:00:00Z';
+const FIXED_NOW_MS = Date.parse(FIXED_NOW);
+const tokenFor = (user, claims, opts) => makeToken(Object.assign({ sub: USERS[user].sub, email: USERS[user].email }, claims || {}),
+  Object.assign({ now: FIXED_NOW_MS }, opts || {}));
+
+// アクセス権限シートに許可リストを登録（テスト用の架空アカウント）
+function seedAccess(ss, users) {
+  const sheet = ss.getSheetByName('アクセス権限');
+  (users || ['admin', 'editor', 'disabled']).forEach((name, i) => {
+    const u = USERS[name];
+    [u.sub, u.email, u.role, u.enabled || 'TRUE', '2026/11/16 12:00:00', '2026/11/16 12:00:00', 'test'].forEach((v, c) => sheet.set(2 + i, 1 + c, v));
+  });
+}
 
 const FOLDERS = {
   '1Ob0yiSr0yP_sHa72t9xg8xmGn5YEUYR-': { files: [
@@ -26,24 +41,23 @@ function setup(opts) {
     KABUKI: o.kabuki || [KABUKI_1101, KABUKI_1116, KABUKI_1117],
     AKIBA: o.akiba || [AKIBA_1116, AKIBA_0101]
   });
-  const h = createGasContext(Object.assign({ spreadsheet: ss, now: '2026-11-16T03:00:00Z', driveFolders: FOLDERS }, o.context || {}));
+  const jwksState = { keys: [KEYS.main] };
+  const h = createGasContext(Object.assign({ spreadsheet: ss, now: o.realTime ? undefined : FIXED_NOW, driveFolders: FOLDERS, urlFetch: jwksHandler(jwksState) }, o.context || {}));
+  h.jwksState = jwksState;
   if (!o.skipSetup) h.gas.setupShiftImageManager();
   if (!o.noAuth) {
-    h.props.AUTH_MODE = 'test';
-    h.props.SHIFT_EDITOR_EMAILS = 'editor@example.com';
-    h.gas.AuthService.setVerifierForTest(auth => {
-      if (!auth || !auth.testUser) { const e = new Error('no auth'); e.code = 'AUTH_REQUIRED'; throw e; }
-      return { email: auth.testUser };
-    });
+    h.props.AUTH_MODE = 'google_id_token';
+    h.props.GOOGLE_OAUTH_CLIENT_ID = CLIENT_ID;
+    if (!o.skipSetup && !o.noAccessList) seedAccess(ss, o.accessUsers);
   }
   return h;
 }
 
 // 別端末（同じスプレッドシート・ロック・キャッシュを共有する別インスタンス）
 function secondTerminal(h) {
-  const t = createGasContext({ spreadsheet: h.ss, now: '2026-11-16T03:00:00Z', driveFolders: FOLDERS,
-    cacheStore: h.cacheStore, lockState: h.lockState, scriptProperties: h.props });
-  t.gas.AuthService.setVerifierForTest(auth => ({ email: auth.testUser }));
+  const t = createGasContext({ spreadsheet: h.ss, now: FIXED_NOW, driveFolders: FOLDERS,
+    cacheStore: h.cacheStore, lockState: h.lockState, scriptProperties: h.props, urlFetch: jwksHandler(h.jwksState) });
+  t.props = h.props;
   return t;
 }
 
@@ -58,6 +72,7 @@ function callPost(h, action, payload, extra) {
   const out = h.gas.doPost({ parameter: {}, postData: { contents: JSON.stringify(body) } });
   return JSON.parse(out.body);
 }
-const EDITOR = { auth: { testUser: 'editor@example.com' } };
+const EDITOR = { auth: { idToken: tokenFor('editor') } };
+const ADMIN = { auth: { idToken: tokenFor('admin') } };
 
-module.exports = { setup, secondTerminal, callGet, callPost, EDITOR, FOLDERS };
+module.exports = { setup, secondTerminal, callGet, callPost, EDITOR, ADMIN, FOLDERS, tokenFor, seedAccess, FIXED_NOW_MS };

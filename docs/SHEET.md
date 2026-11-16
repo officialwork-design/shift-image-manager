@@ -26,6 +26,7 @@ Google Spreadsheet は、このシステムの簡易データベースとして�
 | エラーログ | GAS/APIエラーを保存 | 必須 |
 | シフト編集 | 店舗×日付別の編集データ（Phase 1.5） | 必須 |
 | シフト編集管理 | 店舗×日付別の保存状態・コミット済み revision（Phase 1.5） | 必須 |
+| アクセス権限 | Google ログインの許可リスト（googleSub / role / enabled）（Phase 1.6） | 必須 |
 
 ## 4. ID管理
 
@@ -66,6 +67,7 @@ GASやフロントで使用するID・URL・シート名を管理します。
 | APP_MODE | production | 動作モード |
 | SHEET_SHIFT_EDIT | シフト編集 | 店舗×日付別 編集データ |
 | SHEET_SHIFT_EDIT_MANAGE | シフト編集管理 | 店舗×日付別 保存状態 |
+| SHEET_ACCESS_CONTROL | アクセス権限 | 許可リスト |
 | LIFF_ID | 空欄 | 将来用 |
 
 ## 5. 仕様書
@@ -154,6 +156,25 @@ Spreadsheet上でも構成・運用方針を確認できるようにするシー
 
 - この行が無い店舗×日付は「未保存」。0人保存は `initialized=TRUE, rowCount=0`。
 - 手作業で編集しないこと（`DATA_INCONSISTENT` の原因になります）。
+
+## 6-4. アクセス権限（Phase 1.6）
+
+Google ログインした利用者のうち、ここに登録され有効な利用者だけが API を利用できます。**空 = 全員拒否。**
+
+| 列 | 項目 | 内容 |
+|---|---|---|
+| A | googleSub | Google アカウントの不変ID（数字）。**書式なしテキスト**（数値で保存された行は無効） |
+| B | email | 表示・確認用（照合には使わない） |
+| C | role | `ADMIN` / `EDITOR` |
+| D | enabled | `TRUE`（またはチェックボックスのオン）のみ有効 |
+| E | createdAt | 登録日時 |
+| F | updatedAt | 更新日時 |
+| G | note | メモ |
+
+- 照合は googleSub のみ。メールアドレスが一致しても sub が違えば拒否。
+- 同じ googleSub が複数行ある場合、その利用者は拒否（他の利用者には影響しない）。
+- 追加はメニュー「アクセス権限の追加」または手入力（A 列を書式なしテキストにしてから）。API からは変更できない。
+- 初期シート生成ではヘッダーのみ作成し、既存の行は変更しない。
 
 ## 7. SIFT_DATA
 

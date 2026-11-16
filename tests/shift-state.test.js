@@ -47,9 +47,20 @@ test('フロント状態: 再送は同じ requestId、内容が変われば新�
 
 test('フロント状態: エラー分類（競合メッセージは仕様の文言）', () => {
   assert.deepEqual(S.classifyError({ code: 'REVISION_CONFLICT' }), { kind: 'conflict', message: '他の端末または画面で編集内容が更新されています。最新データを確認してから、もう一度保存してください。' });
-  assert.equal(S.classifyError({ code: 'AUTH_NOT_CONFIGURED', message: 'x' }).kind, 'auth');
-  assert.equal(S.classifyError({ code: 'FORBIDDEN' }).kind, 'auth');
+  // Phase 1.6: 認証エラーは「再ログイン」「権限なし」「ロール不足」「認証機能が利用不可」に分類
+  assert.equal(S.classifyError({ code: 'AUTH_NOT_CONFIGURED', message: 'x' }).kind, 'authUnavailable');
+  assert.equal(S.classifyError({ code: 'FORBIDDEN' }).kind, 'forbidden');
+  assert.equal(S.classifyError({ code: 'FORBIDDEN', details: { reason: 'ROLE' } }).kind, 'role');
+  for (const code of ['AUTH_REQUIRED', 'AUTH_INVALID', 'AUTH_EXPIRED']) assert.equal(S.classifyError({ code }).kind, 'relogin');
+  assert.match(S.classifyError({ code: 'AUTH_EXPIRED' }).message, /入力中の内容は残っています/);
+  assert.equal(S.classifyError({ code: 'TIMEOUT' }).kind, 'network');
   assert.equal(S.classifyError({ code: 'LOCK_TIMEOUT' }).kind, 'lock');
   assert.equal(S.classifyError(new Error('boom')).kind, 'other');
   assert.equal(S.sameSelection({ store: 'KABUKI', date: '2026-11-16' }, { store: 'AKIBA', date: '2026-11-16' }), false);
+});
+
+test('フロント状態: ロール別の操作可否（初期化は ADMIN のみ）', () => {
+  assert.deepEqual(S.permissionsFor('ADMIN'), { canView: true, canEdit: true, canReset: true, canRefreshCache: true });
+  assert.deepEqual(S.permissionsFor('EDITOR'), { canView: true, canEdit: true, canReset: false, canRefreshCache: false });
+  assert.deepEqual(S.permissionsFor(undefined), { canView: false, canEdit: false, canReset: false, canRefreshCache: false });
 });

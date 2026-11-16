@@ -61,6 +61,8 @@ ID類は Spreadsheet の `ID管理` シートで管理します。
 
 ## 7. 主要機能
 
+- Google アカウントでのログインと許可リストによる利用制限（Phase 1.6）
+
 - 店舗×日付別の編集データ永続保存（Phase 1.5）
 - revision による楽観的排他制御・LockService による直列化（Phase 1.5）
 - 未保存変更の検出と切り替え時の確認（Phase 1.5）
@@ -170,15 +172,18 @@ README の「GAS反映フロー」「Phase 1.5 デプロイ手順」を参照（
 - 内部・API は `YYYY-MM-DD`。画面は `M月D日(曜)`。
 - SIFT_DATA の `M月D日(曜)` から年を決める場合は「今日±185日以内かつ曜日一致」の年が一つだけのときに限る。それ以外は選択不可（推測で保存しない）。
 
-### 14-4. 認証・認可
-- 更新系 API は POST のみ、`AuthService.requireEditor` 必須。認証方式は設計承認待ちのため現在はすべて拒否（フェイルクローズ）。詳細は [AUTH_DESIGN.md](AUTH_DESIGN.md)。
+### 14-4. 認証・認可（Phase 1.6 で更新）
+- Google ログイン（Google Identity Services）で取得した ID トークンを、GAS が Google 公開鍵で署名検証する。
+- 「アクセス権限」シートの googleSub・enabled・role で認可（ADMIN / EDITOR）。初期化と画像キャッシュ更新は ADMIN のみ。
+- 公開設定以外の API（読み取りを含む）はすべて POST＋認証必須。GET / JSONP は公開設定のみ。
+- 詳細は [AUTH_DESIGN.md](AUTH_DESIGN.md)。
 - 旧「画像生成」シートには書き込まない（移行元として読み取りのみ）。
 
 ## 15. 将来拡張
 
 - LINEログイン
 - LIFF
-- ユーザー権限管理
+- 許可リストの管理画面（現在はシート／メニューで管理）
 - LINE通知
 - 画像アップロード
 - CSV出力

@@ -234,3 +234,42 @@ body {
     flex: 1 1 100%;
   }
 }
+
+/* ===== Phase 1.6: ログイン・権限表示 ===== */
+.auth-panel {
+  max-width: 560px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.auth-details {
+  max-width: 420px;
+}
+
+.user-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: .375rem;
+  font-size: .85rem;
+  max-width: 100%;
+}
+
+.user-email {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+
+#reloginBanner #gsiButtonRelogin {
+  min-height: 40px;
+}
+
+@media (max-width: 575.98px) {
+  .user-email {
+    max-width: 140px;
+  }
+  .navbar-brand {
+    font-size: 1rem;
+  }
+}

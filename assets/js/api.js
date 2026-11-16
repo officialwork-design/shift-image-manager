@@ -1,18 +1,21 @@
 /**
- * GAS WebApp 通信
- *  - read(action, payload)  : 読み取り API。JSONP(GET)。認証情報は送らない。
- *  - write(action, payload) : 更新 API。POST のみ。認証情報は authProvider から取得して本文で送る。
- *    認証方式は設計承認待ちのため、authProvider は未設定（null を返す）。サーバーは AUTH_NOT_CONFIGURED で拒否する。
+ * GAS WebApp 通信（Phase 1.6）
+ *
+ * - すべて POST（Content-Type: text/plain の JSON 本文）。プリフライトを発生させないため独自ヘッダーは付けない。
+ *   GAS の doPost では HTTP ヘッダーを読めないため、ID トークンは本文の auth.idToken で送る。URL には載せない。
+ * - call(action, payload)       : 認証必須 API（Auth.getToken() のトークンを付与）
+ * - publicCall(action, payload) : ログイン前に使う公開 API（getPublicConfig のみ）
+ * - GAS は HTTP ステータスを返せないため、アプリケーションのエラーコード（code / status）で判定する。
  */
 const Api = (() => {
   let seq = 0;
-  let authProvider = async () => null;
-  const WRITE_TIMEOUT_MS = 60000;
+  let tokenProvider = () => { throw apiError('AUTH_REQUIRED', 'ログインが必要です'); };
 
-  function apiError(code, message, details) {
+  function apiError(code, message, details, status) {
     const err = new Error(message || code);
     err.code = code;
     if (details) err.details = details;
+    if (status) err.status = status;
     return err;
   }
 
@@ -22,87 +25,29 @@ const Api = (() => {
     return config.GAS_WEB_APP_URL;
   }
 
-  function fromResponse(data) {
-    if (!data || !data.success) {
-      const error = (data && data.error) || {};
-      throw apiError(error.code || (data && data.code) || 'API_ERROR', (data && data.message) || error.message || 'API error', error.details);
-    }
-    return data.data;
+  function timeoutMs(options) {
+    return (options && options.timeoutMs) || (window.APP_CONFIG && window.APP_CONFIG.API_TIMEOUT_MS) || 60000;
   }
 
-  // ===== 読み取り =====
-  function read(action, payload = {}) {
-    let url;
-    try { url = getUrl(); } catch (err) { return Promise.reject(err); }
-    return jsonpRequestScript(url, action, payload).catch((err) => {
-      if (err && err.message === 'API script load error') {
-        return getRequest(url, action, payload).catch((fallbackErr) => {
-          const message = fallbackErr && fallbackErr.message ? fallbackErr.message : '';
-          if (message === 'Failed to fetch' || message === 'Load failed') throw err;
-          throw fallbackErr;
-        });
-      }
-      throw err;
-    });
-  }
-
-  function jsonpRequestScript(url, action, payload) {
-    return new Promise((resolve, reject) => {
-      const callbackName = `__shiftApiCallback_${Date.now()}_${seq++}`;
-      const script = document.createElement('script');
-      const timer = setTimeout(() => cleanup(apiError('TIMEOUT', 'API timeout')), 60000);
-
-      window[callbackName] = (data) => {
-        try { cleanup(null, fromResponse(data)); } catch (err) { cleanup(err); }
-      };
-
-      function cleanup(err, data) {
-        clearTimeout(timer);
-        delete window[callbackName];
-        if (script.parentNode) script.parentNode.removeChild(script);
-        if (err) reject(err); else resolve(data);
-      }
-
-      const params = new URLSearchParams({ action, payload: JSON.stringify(payload), callback: callbackName });
-      script.onerror = () => cleanup(new Error('API script load error'));
-      script.src = `${url}?${params.toString()}`;
-      document.body.appendChild(script);
-    });
-  }
-
-  async function getRequest(url, action, payload) {
-    const callbackName = `__shiftFetchCallback_${Date.now()}_${seq++}`;
-    const params = new URLSearchParams({ action, payload: JSON.stringify(payload), callback: callbackName });
-    const res = await fetch(`${url}?${params.toString()}`);
-    const text = await res.text();
-    if (/^\s*</.test(text)) throw new Error('API script load error');
-    const prefix = `${callbackName}(`;
-    const suffix = ');';
-    const trimmed = text.trim();
-    const jsonText = trimmed.indexOf(prefix) === 0 && trimmed.slice(-suffix.length) === suffix
-      ? trimmed.slice(prefix.length, -suffix.length)
-      : trimmed;
-    return fromResponse(JSON.parse(jsonText));
-  }
-
-  // ===== 更新（POST のみ） =====
-  async function write(action, payload = {}, options = {}) {
+  async function post(body, options) {
     const url = getUrl();
-    const auth = await authProvider();
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const timer = setTimeout(() => controller && controller.abort(), options.timeoutMs || WRITE_TIMEOUT_MS);
+    const timer = setTimeout(() => controller && controller.abort(), timeoutMs(options));
     let res;
     try {
-      // text/plain はプリフライト不要の単純リクエスト。GAS は応答を googleusercontent.com 経由で返す。
       res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action, payload, auth, requestId: options.requestId || '' }),
+        body: JSON.stringify(body),
         redirect: 'follow',
+        credentials: 'omit',      // Google の Cookie は送らない（本人確認は ID トークンのみ）
+        cache: 'no-store',
         signal: controller ? controller.signal : undefined
       });
     } catch (err) {
-      if (err && err.name === 'AbortError') throw apiError('TIMEOUT', '保存処理がタイムアウトしました。保存されたか最新データを確認してください');
+      if (err && err.name === 'AbortError') {
+        throw apiError('TIMEOUT', '通信がタイムアウトしました。保存操作の場合は、保存されたか最新データを確認してください');
+      }
       throw apiError('NETWORK', '通信に失敗しました: ' + (err && err.message ? err.message : err));
     } finally {
       clearTimeout(timer);
@@ -113,12 +58,24 @@ const Api = (() => {
     } catch (err) {
       throw apiError('NETWORK', 'サーバーの応答を読み取れませんでした（HTTP ' + res.status + '）');
     }
-    return fromResponse(data);
+    if (!data || !data.success) {
+      const error = (data && data.error) || {};
+      throw apiError(error.code || (data && data.code) || 'API_ERROR', (data && data.message) || error.message || 'API error', error.details, data && data.status);
+    }
+    return data.data;
   }
 
-  // 認証方式の承認後に設定する（例: Google ID トークンを返す関数）
-  function setAuthProvider(fn) {
-    authProvider = typeof fn === 'function' ? fn : async () => null;
+  async function call(action, payload = {}, options = {}) {
+    const idToken = tokenProvider();   // 未ログイン・期限切れはここで例外（送信しない）
+    return post({ action, payload, auth: { idToken }, requestId: options.requestId || '' }, options);
+  }
+
+  function publicCall(action, payload = {}, options = {}) {
+    return post({ action, payload }, options);
+  }
+
+  function setTokenProvider(fn) {
+    tokenProvider = fn;
   }
 
   function newRequestId() {
@@ -126,10 +83,6 @@ const Api = (() => {
     return `req-${Date.now()}-${Math.random().toString(36).slice(2)}-${seq++}`;
   }
 
-  // 旧呼び出し互換（読み取りのみ）
-  function request(action, payload = {}) {
-    return read(action, payload);
-  }
-
-  return { read, write, request, setAuthProvider, newRequestId };
+  // Phase 1.5 互換の名前（すべて認証付き POST）
+  return { call, publicCall, write: call, read: call, setTokenProvider, newRequestId };
 })();

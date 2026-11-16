@@ -68,14 +68,14 @@ const ShiftService = {
       this.assertRowLimit_(records);
       const commit = ShiftRepository.commit({
         store: target.store, date: target.date, expectedRevision: current.revision,
-        records, requestId: context.requestId, user: context.user, source: 'sift'
+        records, requestId: context.requestId, user: context.user, userLabel: context.userLabel, source: 'sift'
       });
       return { created: !commit.replayed, commit, saved: ShiftRepository.readCommitted(target.store, target.date) };
     });
 
     if (result.created) {
       LogService.audit({ action: '初回データ作成', store: target.store, date: target.date,
-        revision: result.saved.revision, user: context.user, result: '成功', detail: 'count=' + result.saved.rows.length });
+        revision: result.saved.revision, user: context.user, userLabel: context.userLabel, result: '成功', detail: 'count=' + result.saved.rows.length });
     }
     return Object.assign(this.buildView_(target, result.saved), { created: result.created });
   },
@@ -103,13 +103,13 @@ const ShiftService = {
       const records = replay ? current.rows : this.assignRecordIds_(normalized, current.rows);
       const commit = ShiftRepository.commit({
         store: target.store, date: target.date, expectedRevision: expected,
-        records, requestId: context.requestId, user: context.user, source: 'edit'
+        records, requestId: context.requestId, user: context.user, userLabel: context.userLabel, source: 'edit'
       });
       return { commit, saved: ShiftRepository.readCommitted(target.store, target.date) };
     });
 
     LogService.audit({ action: '編集保存', store: target.store, date: target.date,
-      revision: result.commit.revision, user: context.user,
+      revision: result.commit.revision, user: context.user, userLabel: context.userLabel,
       result: result.commit.replayed ? '成功(再送)' : '成功', detail: 'count=' + result.saved.rows.length });
     return Object.assign(this.buildView_(target, result.saved), { replayed: result.commit.replayed });
   },
@@ -140,13 +140,13 @@ const ShiftService = {
       });
       const commit = ShiftRepository.commit({
         store: target.store, date: target.date, expectedRevision: expected,
-        records, requestId: context.requestId, user: context.user, source: 'absent'
+        records, requestId: context.requestId, user: context.user, userLabel: context.userLabel, source: 'absent'
       });
       return { commit, saved: ShiftRepository.readCommitted(target.store, target.date) };
     });
 
     LogService.audit({ action: '休み設定変更', store: target.store, date: target.date, castName,
-      revision: result.commit.revision, user: context.user, value: status, result: '成功' });
+      revision: result.commit.revision, user: context.user, userLabel: context.userLabel, value: status, result: '成功' });
     return Object.assign(this.buildView_(target, result.saved), { replayed: result.commit.replayed });
   },
 
@@ -175,13 +175,13 @@ const ShiftService = {
       this.assertRowLimit_(records);
       const commit = ShiftRepository.commit({
         store: target.store, date: target.date, expectedRevision: expected,
-        records, requestId: context.requestId, user: context.user, source: 'reset'
+        records, requestId: context.requestId, user: context.user, userLabel: context.userLabel, source: 'reset'
       });
       return { commit, saved: ShiftRepository.readCommitted(target.store, target.date) };
     });
 
     LogService.audit({ action: '元データから初期化', store: target.store, date: target.date,
-      revision: result.commit.revision, user: context.user, result: '成功', detail: 'count=' + result.saved.rows.length });
+      revision: result.commit.revision, user: context.user, userLabel: context.userLabel, result: '成功', detail: 'count=' + result.saved.rows.length });
     return Object.assign(this.buildView_(target, result.saved), { replayed: result.commit.replayed });
   },
 
