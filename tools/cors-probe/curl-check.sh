@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # GAS WebApp の HTTP 挙動を確認する（テスト環境の URL にのみ使用すること）
 #   usage: tools/cors-probe/curl-check.sh <TEST_GAS_WEB_APP_URL> [https://<テスト用ページのオリジン>]
+# 期待値（Phase 1.8 実ブラウザ結果）: 認証設定前の保護 API は AUTH_NOT_CONFIGURED、設定後は AUTH_REQUIRED
 # 確認項目:
 #   1) POST(text/plain) の応答が 302 で、302 応答自体に Access-Control-Allow-Origin があるか
 #   2) 転送先（GET）が JSON と Access-Control-Allow-Origin を返すか
@@ -23,13 +24,15 @@ echo; echo "== 2) リダイレクトを追って最終応答（GET）を確認"
 curl -sS -L -D - -X POST "$URL" -H "Origin: $ORIGIN" -H 'Content-Type: text/plain;charset=utf-8' \
   --data '{"action":"getPublicConfig","payload":{}}' --post302 -o /tmp/cors-probe-body.txt | grep -iE '^(HTTP/|location:|access-control-allow-origin:|content-type:)' || true
 echo "--- body"; head -c 400 /tmp/cors-probe-body.txt; echo
-echo "（注）ブラウザは 302 の後を GET で取得する。--post302 なしの結果も確認すること:"
-curl -sS -L -o - -X POST "$URL" -H "Origin: $ORIGIN" -H 'Content-Type: text/plain;charset=utf-8' --data '{"action":"getPublicConfig","payload":{}}' | head -c 400; echo
+echo "（注）ブラウザは 302 の後を GET で取得する。ブラウザと同じ挙動（-X POST を付けず、302 後は GET）で確認:"
+curl -sS -L -D - -o /tmp/cors-probe-body2.txt "$URL" -H "Origin: $ORIGIN" -H 'Content-Type: text/plain;charset=utf-8' \
+  --data '{"action":"getPublicConfig","payload":{}}' | grep -iE '^(HTTP/|location:|access-control-allow-origin:|content-type:)' || true
+echo "--- body"; head -c 400 /tmp/cors-probe-body2.txt; echo
 
 echo; echo "== 3) OPTIONS（プリフライト）"
 curl -sS -o /dev/null -D - -X OPTIONS "$URL" -H "Origin: $ORIGIN" -H 'Access-Control-Request-Method: POST' \
   -H 'Access-Control-Request-Headers: content-type' | grep -iE '^(HTTP/|access-control-)' || true
 
 echo; echo "== 4) 認証なしの保護 API（AUTH_REQUIRED を期待）"
-curl -sS -L -X POST "$URL" -H "Origin: $ORIGIN" -H 'Content-Type: text/plain;charset=utf-8' \
+curl -sS -L "$URL" -H "Origin: $ORIGIN" -H 'Content-Type: text/plain;charset=utf-8' \
   --data '{"action":"whoAmI","payload":{}}' | head -c 400; echo

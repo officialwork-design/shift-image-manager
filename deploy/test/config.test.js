@@ -7,5 +7,5 @@ window.APP_CONFIG = {
   APP_ENV: 'test',
   DEFAULT_STORE: 'KABUKI',
   STORES: ['KABUKI', 'AKIBA'],
-  VERSION: '0.1.7-test'
+  VERSION: '0.1.8-test'
 };
