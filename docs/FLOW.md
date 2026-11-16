@@ -29,42 +29,38 @@ config.js 読み込み
 ↓
 app.js 起動
 ↓
-getConfig 実行
-↓
-getDateList 実行
+getDateOptions 実行（年付き日付。年を確定できない日付は選択不可）
 ↓
 店舗・日付セレクトを初期化
 ↓
 画面を操作可能にする
 ```
 
-## 3. 店舗・日付選択フロー
+## 3. 店舗・日付選択フロー（Phase 1.5）
 
 ```text
-ユーザーが店舗を選択
+ユーザーが店舗・日付を選択（日付の値は YYYY-MM-DD）
 ↓
-ユーザーが日付を選択
+処理中なら選択を元に戻して終了
 ↓
-両方が選択済みか確認
+未保存の変更あり？
+  あり → 確認モーダル［保存して移動 / 保存せず移動 / キャンセル］
+          保存して移動 → 現在の店舗・日付に saveShift → 失敗なら移動しない
+          キャンセル  → セレクトを元に戻す（入力は保持）
 ↓
-ローディング表示
+getSavedShift（読み取りのみ）
 ↓
-changeDateAndStore 実行
+initialized = true  → 保存データを表示（SIFT_DATA から作り直さない）
+initialized = false → initializeShift（POST・認証必須）
+                       ロック内で再確認し、無い場合のみ SIFT_DATA から作成
+                       認証不可・SIFT_DATA なし → 警告を表示（データは作らない）
 ↓
-SIFT_DATAから対象投稿を検索
+応答の store / date が選択と一致することを確認して表示
 ↓
-投稿文からキャスト名を抽出
-↓
-画像生成シート H3:M80 に反映
-↓
-休み設定を初期化
-↓
-getImageList 実行
-↓
-画像一覧・出勤一覧・休み一覧を再描画
-↓
-ローディング非表示
+保存状態バッジ「保存済み rev N」
 ```
+
+「再読み込み」ボタンは保存済みデータを読み直すだけです（未保存の変更がある場合は確認）。
 
 ## 4. SIFT_DATA読み取りフロー
 
@@ -97,9 +93,11 @@ store から対象行を決定
 ↓
 イベント名を除外
 ↓
-@以降を削除
+前後を絵文字で囲んだ見出し行（✨マカロン✨ など）を除外
 ↓
-絵文字・記号を削除
+@ / ＠ 以降を削除（Xアカウント）
+↓
+不可視文字・絵文字（Unicode プロパティ判定・サロゲートペアを壊さない）・♡☆★ などの装飾を削除
 ↓
 空白を削除
 ↓
@@ -143,32 +141,23 @@ Google Drive フォルダ内のファイルを複数フォルダから取得
 準備中画像もなければ画像なし扱い
 ```
 
-## 8. 休み設定フロー
+## 8. 休み設定フロー（Phase 1.5）
 
 ```text
-ユーザーが休みボタンを押す
+出勤中 / 休み設定一覧の「休み」「戻す」ボタン（recordId で対象を特定）
 ↓
-確認ダイアログ表示
+未保存の変更あり？
+  あり → サーバーに送らず画面上の状態だけ変更（他の未保存入力を失わない）→「編集保存」で確定
+  なし → setCastAbsent(store, date, recordId, isAbsent, expectedRevision)
+          ロック → revision 検証 → 新しい世代として保存 → 操作ログ
 ↓
-setCastAbsent 実行
-↓
-対象行の I列 に "休み" をセット
-↓
-画像一覧を再取得
-↓
-出勤一覧から除外
-↓
-休み一覧に表示
-↓
-操作ログを保存
+画面を更新
 ```
-
-出勤に戻す場合は、対象行の I列 を空欄に戻します。
 
 ## 9. 画像未登録チェックフロー
 
 ```text
-現在のキャスト一覧を取得
+選択中の店舗×日付の保存データ（シフト編集）を取得
 ↓
 Drive画像マップを取得
 ↓
@@ -270,11 +259,13 @@ GAS_WEB_APP_URL を ID管理 / config.js に反映
 ## 14. GAS責務分離
 
 ```text
-ApiRouter.gs
+ApiRouter.gs  →  AuthService.gs（更新系の認証・認可）
 ↓
 ConfigService.gs / SpreadsheetService.gs
 ↓
-SiftService.gs / ImageService.gs / ShiftService.gs
+SiftService.gs / ImageService.gs / ShiftService.gs → ShiftRepository.gs（保存層）
+↓
+MigrationService.gs（旧データ移行。API からは呼べない）
 ↓
 LogService.gs
 ↓
@@ -297,7 +288,7 @@ GitHub Pagesを開く
 ↓
 日付セレクトが表示されるか確認
 ↓
-KABUKI / 7月1日(水) を選択
+KABUKI / 任意の日付を選択（保存データが無ければ初回作成）
 ↓
 SIFT_DATA投稿文が表示されるか確認
 ↓
@@ -310,49 +301,47 @@ SIFT_DATA投稿文が表示されるか確認
 
 ## 15-2. 編集SIFT_DATA確認フロー
 
-SIFT_DATA確認は「原本」と「編集結果」の2系統に分離する。
+- 「SIFT_DATA原本確認」は原本をそのまま表示（読み取りのみ）。
+- 「編集SIFT_DATA確認」「投稿風プレビュー」は画面上の編集テーブル（未保存含む）から生成。
+- 差込画像・名前・時間・状態・並び順の変更は「編集保存」で `saveShift` により保存。
+
+## 15-3. 元データから初期化フロー（Phase 1.5）
 
 ```text
-SIFT_DATA原本確認（A）
-  外部取得した元投稿をそのまま表示
-  編集テーブルの変更は反映しない（getSiftPreview の結果）
+「元データから初期化」
 ↓
-編集SIFT_DATA確認（B）
-  編集テーブルの内容から生成（collectEditRows）
-  テーブル列：時間 / 名前 / ID / 状態 / 並び順
-  名前・IDは CAST_OPTIONS から表示
-  状態=休みも表示、並び順の昇順で表示
+確認モーダル: 対象店舗・対象日付・失われる内容を表示
+  確認欄に「店舗:日付」（例 KABUKI:2026-11-16）を入力するまで実行ボタン無効
+  キャンセル → 何も送信しない
 ↓
-投稿風プレビュー
-  編集テーブルの内容を時間ごとにグループ化
-  状態=休み は除外
-  「名前　@id」を時間見出しの下に並べる
+resetShiftFromSource(store, date, expectedRevision, confirmation)
+  ロック → revision 検証 → SIFT_DATA を再解析 → 新しい世代として保存（直前の世代も KEEP_GENERATIONS の範囲で残る）
 ↓
-元データから初期化ボタン
+結果を画面に表示（人数・rev）
 ```
 
-- 編集テーブルで名前・時間・状態・並び順を変更すると、保存前でも B と投稿風プレビューを即時更新する。
-- 編集テーブルで差込画像を選ぶと、画像生成シート M列へ fileId を保存し、自動照合より優先して出力画像に使う。
-- 保存後（refreshCurrentShift → render）も最新状態を再描画する。
-- 画像プレビューは保存後の更新でよい。
+対象の店舗×日付以外、SIFT_DATA 原本、旧「画像生成」シートは変更しません。
 
-## 15-3. 元データから初期化フロー
+## 15-4. 保存フロー（Phase 1.5・世代追記 + コミットマーカー）
 
 ```text
-ユーザーが「元データから初期化」を押す
-↓
-confirm 表示：現在の編集内容を破棄して、SIFT_DATA原本から初期化します。よろしいですか？
-↓
-OK なら changeDateAndStore を再実行
-↓
-SIFT_DATA原本を再解析し、画像生成シート H:M を元データ由来で上書き
-↓
-getImageList を再取得して編集テーブル・各一覧・編集SIFTプレビューを再描画
-↓
-getSiftPreview で原本確認欄も更新
+saveShift(store, date, expectedRevision, rows, requestId)
+↓ 認証・認可（POST のみ）
+↓ 入力検証（時間・状態・画像ID・人数）
+↓ LockService.tryLock(10秒)  失敗 → LOCK_TIMEOUT（書き込みなし）
+↓ 管理行を再取得
+↓ 同じ requestId が最後の成功更新 → 前回結果を返す（二重更新しない）
+↓ expectedRevision ≠ 現在 revision → REVISION_CONFLICT（書き込みなし）
+↓ recordId が対象店舗×日付に属するか検証
+↓ 未コミット行（revision > 現在）を削除
+↓ 新世代 (revision+1) の行を「シフト編集」に追記 → flush
+↓ 読み戻して件数・recordId を検証  不一致 → WRITE_VERIFY_FAILED（管理行は旧のまま＝旧データが有効）
+↓ 「シフト編集管理」の revision / rowCount / lastRequestId を更新（コミット）→ flush
+↓ 古い世代を整理（失敗しても保存は成功）
+↓ ロック解放 → 監査ログ
 ```
 
-- SIFT_DATA原本シートは上書きしない（読み取り専用）。初期化は画像生成シート H:M と編集テーブルを元データへ戻すだけ。
+読み取り（getSavedShift）はロックを取らず、管理行の revision と一致する行だけを返します。行数が rowCount と異なる場合は `DATA_INCONSISTENT` とし、正常データとして返しません。
 
 ## 16. 開発優先順位
 

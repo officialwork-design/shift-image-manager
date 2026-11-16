@@ -51,6 +51,8 @@ const SpreadsheetService = {
     this.ensureOperationLogSheet_(spreadsheet, config, createdSheets);
     this.ensureImageCheckSheet_(spreadsheet, config, createdSheets);
     this.ensureErrorLogSheet_(spreadsheet, config, createdSheets);
+    this.ensureSchemaSheet_(spreadsheet, config.SHEET_SHIFT_EDIT, SHIFT_EDIT_HEADERS, createdSheets);
+    this.ensureSchemaSheet_(spreadsheet, config.SHEET_SHIFT_EDIT_MANAGE, SHIFT_MANAGE_HEADERS, createdSheets);
 
     return {
       success: true,
@@ -63,7 +65,9 @@ const SpreadsheetService = {
         config.SHEET_SIFT_DATA,
         config.SHEET_OPERATION_LOG,
         config.SHEET_IMAGE_CHECK,
-        config.SHEET_ERROR_LOG
+        config.SHEET_ERROR_LOG,
+        config.SHEET_SHIFT_EDIT,
+        config.SHEET_SHIFT_EDIT_MANAGE
       ].filter(Boolean)
     };
   },
@@ -130,6 +134,97 @@ const SpreadsheetService = {
     this.ensureHeaders_(sheet, ['日時', 'action', 'message', 'stack', 'payload', 'userAgent']);
   },
 
+  // ===== Phase 1.5: スキーマ付きシート =====
+
+  // 既存シートがあればヘッダーを検証するだけ（データは一切変更しない）。無ければ作成してヘッダーを書く。
+  ensureSchemaSheet_(spreadsheet, name, headers, createdSheets) {
+    let sheet = spreadsheet.getSheetByName(name);
+    if (!sheet) {
+      sheet = spreadsheet.insertSheet(name);
+      createdSheets.push(name);
+      this.ensureSheetSize_(sheet, 2, headers.length);
+      sheet.getRange(1, 1, sheet.getMaxRows(), headers.length).setNumberFormat('@');
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      sheet.setFrozenRows(1);
+      return sheet;
+    }
+    this.assertHeaders_(sheet, name, headers);
+    return sheet;
+  },
+
+  // 読み書き用: シートが無い・ヘッダー不一致ならエラー（勝手に作成・修復しない）
+  getSchemaSheet(name, headers) {
+    const sheet = this.getSpreadsheet().getSheetByName(name);
+    if (!sheet) {
+      throw Utils.apiError('SETUP_REQUIRED', name + ' シートがありません。メニュー「初期シート生成」を実行してください');
+    }
+    this.assertHeaders_(sheet, name, headers);
+    return sheet;
+  },
+
+  assertHeaders_(sheet, name, headers) {
+    if (sheet.getLastColumn() < headers.length) {
+      throw Utils.apiError('SCHEMA_MISMATCH', name + ' シートの列数が不足しています');
+    }
+    const current = sheet.getRange(1, 1, 1, headers.length).getDisplayValues()[0].map(v => String(v || '').trim());
+    const mismatch = headers.filter((h, i) => current[i] !== h);
+    if (mismatch.length) {
+      throw Utils.apiError('SCHEMA_MISMATCH', name + ' シートのヘッダーが想定と異なります', { expected: headers, actual: current });
+    }
+  },
+
+  // 2行目以降の全データ（表示値ではなく文字列化した値）
+  readTable(sheet, width) {
+    const lastRow = sheet.getLastRow();
+    if (lastRow < 2) return [];
+    return sheet.getRange(2, 1, lastRow - 1, width).getValues().map(row => row.map(value => this.cellToString_(value)));
+  },
+
+  cellToString_(value) {
+    if (value === null || value === undefined) return '';
+    if (Object.prototype.toString.call(value) === '[object Date]') {
+      return Utilities.formatDate(value, Utils.getTimezone_(), 'yyyy-MM-dd');
+    }
+    return String(value);
+  },
+
+  // 末尾に追記（自動型変換を防ぐため書式を「書式なしテキスト」にしてから書き込む）
+  appendTextRows(sheet, rows, width) {
+    if (!rows.length) return 0;
+    const startRow = sheet.getLastRow() + 1;
+    this.ensureSheetSize_(sheet, startRow + rows.length - 1, width);
+    const range = sheet.getRange(startRow, 1, rows.length, width);
+    range.setNumberFormat('@');
+    range.setValues(rows.map(row => row.map(value => (value === null || value === undefined) ? '' : String(value))));
+    return startRow;
+  },
+
+  writeTextRow(sheet, rowIndex, values) {
+    const range = sheet.getRange(rowIndex, 1, 1, values.length);
+    range.setNumberFormat('@');
+    range.setValues([values.map(value => (value === null || value === undefined) ? '' : String(value))]);
+  },
+
+  // シート行番号（2以上）の配列を、連続ブロックごとに下から削除する
+  deleteSheetRows(sheet, rowIndexes) {
+    const sorted = rowIndexes.slice().sort((a, b) => b - a);
+    let i = 0;
+    while (i < sorted.length) {
+      let end = sorted[i];
+      let start = end;
+      while (i + 1 < sorted.length && sorted[i + 1] === start - 1) {
+        i += 1;
+        start = sorted[i];
+      }
+      sheet.deleteRows(start, end - start + 1);
+      i += 1;
+    }
+  },
+
+  flush() {
+    SpreadsheetApp.flush();
+  },
+
   appendMissingConfigRows_(sheet, rows) {
     const lastRow = sheet.getLastRow();
     const existingKeys = {};
@@ -165,7 +260,9 @@ const SpreadsheetService = {
       ['SHEET_IMAGE_CHECK', config.SHEET_IMAGE_CHECK || DEFAULT_CONFIG.SHEET_IMAGE_CHECK, 'sheet', '画像チェックシート名', 'false', now, ''],
       ['SHEET_ERROR_LOG', config.SHEET_ERROR_LOG || DEFAULT_CONFIG.SHEET_ERROR_LOG, 'sheet', 'エラーログシート名', 'false', now, ''],
       ['TIMEZONE', config.TIMEZONE || DEFAULT_CONFIG.TIMEZONE, 'text', 'タイムゾーン', 'false', now, ''],
-      ['APP_MODE', config.APP_MODE || DEFAULT_CONFIG.APP_MODE, 'text', '動作モード', 'true', now, '']
+      ['APP_MODE', config.APP_MODE || DEFAULT_CONFIG.APP_MODE, 'text', '動作モード', 'true', now, ''],
+      ['SHEET_SHIFT_EDIT', config.SHEET_SHIFT_EDIT || DEFAULT_CONFIG.SHEET_SHIFT_EDIT, 'sheet', '店舗×日付別 編集データ', 'false', now, ''],
+      ['SHEET_SHIFT_EDIT_MANAGE', config.SHEET_SHIFT_EDIT_MANAGE || DEFAULT_CONFIG.SHEET_SHIFT_EDIT_MANAGE, 'sheet', '店舗×日付別 保存状態（コミットマーカー）', 'false', now, '']
     ];
   }
 };

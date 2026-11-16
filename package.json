@@ -1,0 +1,9 @@
+{
+  "name": "shift-image-manager",
+  "private": true,
+  "description": "ローカルテスト専用（GitHub Pages / GAS の動作には不要）",
+  "scripts": {
+    "test": "node --test tests/gas.test.js tests/api-and-normalize.test.js tests/migration.test.js tests/shift-state.test.js",
+    "test:e2e": "node --test --test-timeout=240000 tests/e2e.test.js"
+  }
+}

@@ -1,5 +1,9 @@
 const state = {
-  current: null,
+  current: null,          // 最後に読み込んだ保存データ（store / date / revision / initialized / editRows ...）
+  selection: { store: '', date: '' },  // 現在表示している店舗・日付（date は YYYY-MM-DD）
+  savedSignature: null,   // 保存済み内容の署名（未保存変更の検出用）
+  pendingSave: null,      // 再送時に同じ requestId を使うための情報
+  conflictLatest: null,
   isProcessing: false
 };
 
@@ -104,7 +108,13 @@ async function boot() {
   renderAddWorkTimeOptions();
   renderAddCastOptions();
   bindEvents();
+  window.addEventListener('beforeunload', event => {
+    if (!isDirty()) return;
+    event.preventDefault();
+    event.returnValue = '';
+  });
   await loadDateList();
+  updateSaveState();
   setStatus('準備完了', 'success');
 }
 
@@ -130,44 +140,58 @@ function renderAddWorkTimeOptions() {
 }
 
 function bindEvents() {
-  document.getElementById('storePicker').addEventListener('change', loadShift);
-  document.getElementById('datePicker').addEventListener('change', loadShift);
-  document.getElementById('reloadButton').addEventListener('click', loadShift);
+  document.getElementById('storePicker').addEventListener('change', onSelectionChange);
+  document.getElementById('datePicker').addEventListener('change', onSelectionChange);
+  document.getElementById('reloadButton').addEventListener('click', reloadCurrentShift);
   document.getElementById('saveRowsButton').addEventListener('click', saveEditRows);
   document.getElementById('addCastButton').addEventListener('click', addCastRow);
   document.getElementById('checkButton').addEventListener('click', checkImages);
   document.getElementById('exportButton').addEventListener('click', exportImage);
   document.getElementById('siftPreviewSelect').addEventListener('change', onPreviewChange);
-  document.getElementById('resetFromSourceButton').addEventListener('click', resetFromSource);
+  document.getElementById('resetFromSourceButton').addEventListener('click', openResetDialog);
+  document.getElementById('resetConfirmInput').addEventListener('input', onResetConfirmInput);
+  document.getElementById('resetExecuteButton').addEventListener('click', resetFromSource);
+  document.getElementById('conflictShowLatestButton').addEventListener('click', showLatestForComparison);
+  document.getElementById('conflictReplaceButton').addEventListener('click', replaceWithLatest);
+  document.getElementById('conflictCloseButton').addEventListener('click', hideConflict);
+
+  // 出勤中 / 休み一覧のボタン（イベント委譲・recordId で対象を特定）
+  ['activeList', 'absentList'].forEach(id => {
+    document.getElementById(id).addEventListener('click', event => {
+      const button = event.target.closest('.js-toggle-absent');
+      if (!button) return;
+      toggleAbsent(button.dataset.recordId, button.dataset.toAbsent === 'true');
+    });
+  });
 
   // 編集テーブルの変更を検知（イベント委譲で再描画後も有効）
   document.getElementById('editTableArea').addEventListener('change', event => {
-    // 並び順変更 → 自動繰り上げ・繰り下げ（テーブル再描画を伴う）
     if (event.target.classList.contains('js-sort-order')) {
       handleSortOrderChange(event.target);
+      return;
     }
     if (event.target.classList.contains('js-image-file-id')) {
       const rows = collectEditRows();
       state.current = state.current || {};
       state.current.editRows = rows;
       renderEditTable(rows);
-      renderEditableSiftPreview();
-      return;
     }
-    // 名前・時間・状態・並び順のいずれの変更でも編集SIFTプレビューを更新（保存前でも反映）
     renderEditableSiftPreview();
+    updateSaveState();
   });
 
   document.getElementById('editTableArea').addEventListener('input', event => {
     if (event.target.classList.contains('js-cast-name')) {
       renderEditableSiftPreview();
+      updateSaveState();
     }
   });
 }
 
+// ===== 日付一覧（値は YYYY-MM-DD、表示は M月D日(曜)） =====
 async function loadDateList() {
-  const fallbackDates = getCurrentMonthDatesJst();
-  renderDateOptions(fallbackDates);
+  const fallback = getCurrentMonthDateOptionsJst();
+  renderDateOptions(fallback);
 
   const gasUrl = (window.APP_CONFIG && window.APP_CONFIG.GAS_WEB_APP_URL) || '';
   if (!gasUrl) {
@@ -178,94 +202,159 @@ async function loadDateList() {
 
   try {
     setStatus('日付取得中', 'secondary');
-    const dates = await Api.request('getDateList');
-    renderDateOptions(Array.isArray(dates) && dates.length ? dates : fallbackDates);
+    const options = await Api.read('getDateOptions');
+    renderDateOptions(Array.isArray(options) && options.length ? options : fallback);
+    const ambiguous = (options || []).filter(o => !o.ok);
+    if (ambiguous.length) {
+      showAlert(`年を確定できない日付があるため選択できません: ${ambiguous.map(o => o.label).join('、')}`, 'warning');
+    }
   } catch (err) {
-    renderDateOptions(fallbackDates);
+    renderDateOptions(fallback);
     showAlert('APIから日付を取得できなかったため、日本時間の今月分を表示しています。' + err.message, 'warning');
     setStatus('日付は日本時間で生成', 'warning');
   }
 }
 
-function renderDateOptions(dates) {
+function renderDateOptions(options) {
   const picker = document.getElementById('datePicker');
-  picker.innerHTML = '<option value="">日付選択</option>' + dates
-    .map(date => `<option value="${escapeHtml(date)}">${escapeHtml(date)}</option>`)
+  picker.innerHTML = '<option value="">日付選択</option>' + options
+    .map(o => o.ok
+      ? `<option value="${escapeHtml(o.date)}">${escapeHtml(o.label)}</option>`
+      : `<option value="" disabled>${escapeHtml(o.label)}（年を確定できません）</option>`)
     .join('');
+  picker.value = state.selection.date || '';
 }
 
-function getCurrentMonthDatesJst() {
+function getCurrentMonthDateOptionsJst() {
   const nowParts = getJapanDateParts(new Date());
   const year = Number(nowParts.year);
   const month = Number(nowParts.month);
   const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
   const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
-  const dates = [];
+  const options = [];
 
   for (let day = 1; day <= lastDay; day++) {
     const date = new Date(Date.UTC(year, month - 1, day));
-    dates.push(`${month}月${day}日(${weekdays[date.getUTCDay()]})`);
+    options.push({
+      ok: true,
+      date: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+      label: `${month}月${day}日(${weekdays[date.getUTCDay()]})`
+    });
   }
-
-  return dates;
+  return options;
 }
 
 function getJapanDateParts(date) {
-  const formatter = new Intl.DateTimeFormat('ja-JP', {
-    timeZone: 'Asia/Tokyo',
-    year: 'numeric',
-    month: 'numeric',
-    day: 'numeric'
-  });
-
+  const formatter = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', year: 'numeric', month: 'numeric', day: 'numeric' });
   return formatter.formatToParts(date).reduce((acc, part) => {
     if (part.type !== 'literal') acc[part.type] = part.value;
     return acc;
   }, {});
 }
 
-async function loadShift() {
-  const store = document.getElementById('storePicker').value;
-  const date = document.getElementById('datePicker').value;
+// ===== 店舗・日付の切り替え =====
+function getPickerSelection() {
+  return {
+    store: document.getElementById('storePicker').value,
+    date: document.getElementById('datePicker').value
+  };
+}
 
-  if (!store || !date || state.isProcessing) return;
+function revertPickers() {
+  document.getElementById('storePicker').value = state.selection.store || APP_CONFIG.DEFAULT_STORE || 'KABUKI';
+  document.getElementById('datePicker').value = state.selection.date || '';
+}
 
+async function onSelectionChange() {
+  const next = getPickerSelection();
+  if (state.isProcessing) {           // 処理中の切り替えは受け付けない（画面と表示データの不一致を防ぐ）
+    revertPickers();
+    return;
+  }
+  if (!next.store || !next.date || ShiftState.sameSelection(next, state.selection)) return;
+
+  if (isDirty()) {
+    const choice = await askUnsavedChoice();
+    if (choice === 'cancel') {
+      revertPickers();
+      return;
+    }
+    if (choice === 'save') {
+      revertPickers();                // 保存は現在の店舗・日付に対して行う
+      const saved = await saveEditRows();
+      if (!saved) return;             // 保存失敗時は移動しない
+      document.getElementById('storePicker').value = next.store;
+      document.getElementById('datePicker').value = next.date;
+    }
+  }
+  await loadShift(next);
+}
+
+// 保存データを優先して読み込む。保存データが無い場合のみ初回作成（initializeShift）を行う。
+async function loadShift(selection) {
   try {
-    setProcessing(true, `${store} / ${date} 読み込み中`);
-    await Api.request('changeDateAndStore', { store, date });
-    const data = await Api.request('getImageList', { store, date });
-    state.current = data;
-    render(data);
-    await loadSiftPreview(store, date);
+    setProcessing(true, `${selection.store} / ${selection.date} 読み込み中`);
+    hideConflict();
+    let data = await Api.read('getSavedShift', selection);
+    if (!data.initialized) {
+      try {
+        setProcessing(true, `${selection.store} / ${selection.date} 初回データ作成中`);
+        data = await Api.write('initializeShift', selection, { requestId: Api.newRequestId() });
+      } catch (err) {
+        const info = ShiftState.classifyError(err);
+        if (err.code === 'SIFT_NOT_FOUND') showAlert('SIFT_DATAにこの店舗・日付の投稿がありません。キャストを追加して保存できます。', 'warning');
+        else showAlert(`保存データがありません。${info.message}`, 'warning');
+      }
+    }
+    assertDataMatches(data, selection);
+    state.selection = { store: selection.store, date: selection.date };
+    applyData(data);
+    await loadSiftPreview(selection);
     setStatus(`同期 ${data.updatedAt || ''}`, 'success');
   } catch (err) {
     showAlert(err.message, 'danger');
     setStatus('エラー', 'danger');
+    revertPickers();
   } finally {
     setProcessing(false);
   }
 }
 
-async function refreshCurrentShift() {
-  const store = document.getElementById('storePicker').value;
-  const date = document.getElementById('datePicker').value;
-
-  if (!store || !date) return;
-
-  const data = await Api.request('getImageList', { store, date });
-  state.current = data;
-  render(data);
-  setStatus(`同期 ${data.updatedAt || ''}`, 'success');
+function assertDataMatches(data, selection) {
+  if (!data || data.store !== selection.store || data.date !== selection.date) {
+    throw new Error('取得したデータの店舗・日付が選択と一致しません。再読み込みしてください。');
+  }
 }
 
-async function loadSiftPreview(store, date) {
-  const data = await Api.request('getSiftPreview', { store, date });
-  const posts = data.posts || [];
+async function reloadCurrentShift() {
+  const selection = state.selection.store ? state.selection : getPickerSelection();
+  if (!selection.store || !selection.date) return;
+  if (isDirty() && !window.confirm('未保存の変更を破棄して、保存済みの最新データを読み込みます。よろしいですか？')) return;
+  await loadShift(selection);
+}
+
+function applyData(data) {
+  state.current = data;
+  state.pendingSave = null;
+  render(data);
+  state.savedSignature = ShiftState.rowsSignature(collectEditRows());
+  updateSaveState();
+}
+
+async function loadSiftPreview(selection) {
   const select = document.getElementById('siftPreviewSelect');
   const body = document.getElementById('siftPreviewBody');
+  let posts = [];
+  try {
+    const data = await Api.read('getSiftPreview', selection);
+    posts = data.posts || [];
+  } catch (err) {
+    posts = [];
+  }
 
   if (!posts.length) {
     select.innerHTML = '<option value="">SIFT_DATAなし</option>';
+    select.dataset.posts = '[]';
     body.textContent = '';
     return;
   }
@@ -292,6 +381,241 @@ function render(data) {
   renderList('activeList', data.activeCastList || [], true);
   renderList('absentList', data.absentCastList || [], false);
 }
+
+// ===== 保存状態 =====
+function isDirty() {
+  if (!state.current || !state.selection.store) return false;
+  return ShiftState.isDirty(collectEditRows(), state.savedSignature);
+}
+
+function updateSaveState() {
+  const el = document.getElementById('saveState');
+  if (!el) return;
+  if (!state.current || !state.selection.store) {
+    el.className = 'badge text-bg-secondary save-state';
+    el.textContent = '未読み込み';
+  } else if (!state.current.initialized) {
+    el.className = 'badge text-bg-warning save-state';
+    el.textContent = isDirty() ? '未保存（保存データなし）' : '保存データなし';
+  } else if (isDirty()) {
+    el.className = 'badge text-bg-danger save-state';
+    el.textContent = `未保存の変更あり（rev ${state.current.revision}）`;
+  } else {
+    el.className = 'badge text-bg-success save-state';
+    el.textContent = `保存済み rev ${state.current.revision}${state.current.savedAt ? ' / ' + state.current.savedAt : ''}`;
+  }
+  const target = document.getElementById('saveTarget');
+  if (target) target.textContent = state.selection.store ? `${state.selection.store} / ${formatDateLabel(state.selection.date)}` : '';
+}
+
+function formatDateLabel(iso) {
+  if (state.current && state.current.date === iso && state.current.dateLabel) return state.current.dateLabel;
+  const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return iso || '';
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return `${Number(m[2])}月${Number(m[3])}日(${['日', '月', '火', '水', '木', '金', '土'][d.getUTCDay()]})`;
+}
+
+// 未保存変更がある状態で移動するときの確認（保存して移動 / 保存せず移動 / キャンセル）
+function askUnsavedChoice() {
+  const modalEl = document.getElementById('unsavedModal');
+  if (!modalEl || !window.bootstrap) {
+    if (window.confirm('未保存の変更があります。保存してから移動しますか？\n（キャンセルを押すと保存せず移動するか確認します）')) return Promise.resolve('save');
+    return Promise.resolve(window.confirm('保存せずに移動しますか？未保存の変更は失われます。') ? 'discard' : 'cancel');
+  }
+  document.getElementById('unsavedTarget').textContent = `${state.selection.store} / ${formatDateLabel(state.selection.date)}`;
+  const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+  return new Promise(resolve => {
+    let choice = 'cancel';
+    const onClick = event => {
+      const button = event.target.closest('[data-choice]');
+      if (!button) return;
+      choice = button.dataset.choice;
+      modal.hide();
+    };
+    const onHidden = () => {
+      modalEl.removeEventListener('click', onClick);
+      modalEl.removeEventListener('hidden.bs.modal', onHidden);
+      resolve(choice);
+    };
+    modalEl.addEventListener('click', onClick);
+    modalEl.addEventListener('hidden.bs.modal', onHidden);
+    modal.show();
+  });
+}
+
+// ===== 保存 =====
+async function saveEditRows() {
+  if (!state.current || !state.selection.store) {
+    showAlert('店舗と日付を選択してください。', 'warning');
+    return false;
+  }
+  if (!state.current.initialized) {
+    showAlert('この店舗・日付の保存データがまだ作成されていません。再読み込みしてから保存してください。', 'warning');
+    return false;
+  }
+  const selection = Object.assign({}, state.selection);
+  const payload = ShiftState.buildSavePayload(selection, state.current.revision, collectEditRows());
+  const key = `${selection.store}:${selection.date}:${payload.expectedRevision}:${ShiftState.rowsSignature(payload.rows)}`;
+  state.pendingSave = ShiftState.requestIdFor(state.pendingSave, key, Api.newRequestId);
+
+  try {
+    setProcessing(true, '編集内容を保存中');
+    const data = await Api.write('saveShift', payload, { requestId: state.pendingSave.requestId });
+    assertDataMatches(data, selection);
+    applyData(data);
+    hideConflict();
+    showAlert(`保存しました（${selection.store} / ${formatDateLabel(selection.date)} / ${data.editRows.length}人 / rev ${data.revision}）。`, 'success');
+    return true;
+  } catch (err) {
+    handleWriteError(err);
+    return false;
+  } finally {
+    setProcessing(false);
+    updateSaveState();
+  }
+}
+
+function handleWriteError(err) {
+  const info = ShiftState.classifyError(err);
+  if (info.kind === 'conflict') {
+    showConflict(info.message);
+    return;
+  }
+  showAlert(info.message, info.kind === 'lock' ? 'warning' : 'danger');
+}
+
+// ===== 競合 =====
+function showConflict(message) {
+  const panel = document.getElementById('conflictPanel');
+  document.getElementById('conflictMessage').textContent = message;
+  document.getElementById('conflictLatestArea').innerHTML = '';
+  document.getElementById('conflictReplaceButton').disabled = true;
+  panel.classList.remove('d-none');
+  panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function hideConflict() {
+  const panel = document.getElementById('conflictPanel');
+  if (panel) panel.classList.add('d-none');
+  state.conflictLatest = null;
+}
+
+// 最新データを別欄に表示（画面上の未保存入力はそのまま残す）
+async function showLatestForComparison() {
+  try {
+    setProcessing(true, '最新データを取得中');
+    const latest = await Api.read('getSavedShift', state.selection);
+    assertDataMatches(latest, state.selection);
+    state.conflictLatest = latest;
+    const rows = latest.editRows || [];
+    document.getElementById('conflictLatestArea').innerHTML = rows.length ? `
+      <div class="small text-secondary mb-1">保存済みの最新データ（rev ${latest.revision}${latest.savedAt ? ' / ' + escapeHtml(latest.savedAt) : ''}）</div>
+      <table class="table table-sm mb-0">
+        <thead class="table-light"><tr><th>順</th><th>名前</th><th>時間</th><th>状態</th><th>差込画像</th></tr></thead>
+        <tbody>${rows.map(r => `<tr class="${r.status === '休み' ? 'text-secondary' : ''}">
+          <td>${Number(r.sortOrder)}</td><td>${escapeHtml(r.castName)}</td><td>${escapeHtml(r.workTime || '未設定')}</td>
+          <td>${escapeHtml(r.status)}</td><td>${escapeHtml(r.imageName || (r.imageFileId ? '選択あり' : '自動'))}</td></tr>`).join('')}</tbody>
+      </table>` : `<div class="text-secondary">最新データ: キャストなし（rev ${latest.revision}）</div>`;
+    document.getElementById('conflictReplaceButton').disabled = false;
+  } catch (err) {
+    showAlert(err.message, 'danger');
+  } finally {
+    setProcessing(false);
+  }
+}
+
+function replaceWithLatest() {
+  if (!state.conflictLatest) return;
+  if (!window.confirm('画面上の未保存の入力を破棄して、最新データに置き換えます。よろしいですか？')) return;
+  applyData(state.conflictLatest);
+  hideConflict();
+  showAlert('最新データを表示しました。必要な変更を入力し直して保存してください。', 'info');
+}
+
+// ===== 元データから初期化（明示操作のみ） =====
+function openResetDialog() {
+  if (!state.current || !state.selection.store) {
+    showAlert('店舗と日付を選択してください。', 'warning');
+    return;
+  }
+  const key = `${state.selection.store}:${state.selection.date}`;
+  document.getElementById('resetTargetStore').textContent = state.selection.store;
+  document.getElementById('resetTargetDate').textContent = `${formatDateLabel(state.selection.date)}（${state.selection.date}）`;
+  document.getElementById('resetConfirmKey').textContent = key;
+  document.getElementById('resetConfirmInput').value = '';
+  document.getElementById('resetExecuteButton').disabled = true;
+  document.getElementById('resetDirtyNote').classList.toggle('d-none', !isDirty());
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('resetModal')).show();
+}
+
+function onResetConfirmInput() {
+  const key = `${state.selection.store}:${state.selection.date}`;
+  document.getElementById('resetExecuteButton').disabled = document.getElementById('resetConfirmInput').value.trim() !== key;
+}
+
+async function resetFromSource() {
+  const selection = Object.assign({}, state.selection);
+  const confirmation = document.getElementById('resetConfirmInput').value.trim();
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('resetModal')).hide();
+  if (confirmation !== `${selection.store}:${selection.date}`) return;   // キャンセル・不一致では何も送らない
+
+  try {
+    setProcessing(true, '元データから初期化中');
+    const data = await Api.write('resetShiftFromSource', {
+      store: selection.store,
+      date: selection.date,
+      expectedRevision: state.current.revision,
+      confirmation
+    }, { requestId: Api.newRequestId() });
+    assertDataMatches(data, selection);
+    applyData(data);
+    await loadSiftPreview(selection);
+    showAlert(`${selection.store} / ${formatDateLabel(selection.date)} をSIFT_DATA原本から初期化しました（${data.editRows.length}人 / rev ${data.revision}）。`, 'success');
+    setStatus(`初期化 ${data.updatedAt || ''}`, 'success');
+  } catch (err) {
+    handleWriteError(err);
+    setStatus('エラー', 'danger');
+  } finally {
+    setProcessing(false);
+  }
+}
+
+// ===== キャスト追加 =====
+function addCastRow() {
+  if (!state.current || !state.selection.store) {
+    showAlert('店舗と日付を選択してください。', 'warning');
+    return;
+  }
+  const nameInput = document.getElementById('addCastName');
+  const workTimeInput = document.getElementById('addWorkTime');
+  const statusInput = document.getElementById('addStatus');
+
+  const castName = nameInput.value.trim();
+  if (!castName) {
+    showAlert('追加するキャスト名を入力してください。', 'warning');
+    return;
+  }
+
+  const rows = collectEditRows();
+  rows.push({
+    recordId: '',
+    sortOrder: rows.length + 1,
+    castName,
+    workTime: workTimeInput.value,
+    status: statusInput.value,
+    imageStatus: '未登録',
+    imageFileId: ''
+  });
+
+  state.current.editRows = rows;
+  renderEditTable(rows);
+  renderEditableSiftPreview();
+  updateSaveState();
+
+  nameInput.value = '';
+}
+
 
 // ==== 編集SIFT_DATA確認（編集テーブルの内容から生成） ====
 function renderEditableSiftPreview() {
@@ -379,38 +703,6 @@ function compareWorkTime(a, b) {
   return a < b ? -1 : 1;
 }
 
-// 元データから初期化：SIFT_DATA原本を再解析して編集テーブル・画像生成シートH:Mを戻す
-async function resetFromSource() {
-  const store = document.getElementById('storePicker').value;
-  const date = document.getElementById('datePicker').value;
-
-  if (!store || !date) {
-    showAlert('店舗と日付を選択してください。', 'warning');
-    return;
-  }
-
-  if (!window.confirm('現在の編集内容を破棄して、SIFT_DATA原本から初期化します。よろしいですか？')) {
-    return;
-  }
-
-  try {
-    setProcessing(true, '元データから初期化中');
-    // changeDateAndStore がSIFT_DATA原本を再解析し、画像生成シートH:Mを元データで上書きする
-    await Api.request('changeDateAndStore', { store, date });
-    const data = await Api.request('getImageList', { store, date });
-    state.current = data;
-    render(data);
-    await loadSiftPreview(store, date);
-    showAlert('SIFT_DATA原本から初期化しました。', 'success');
-    setStatus(`初期化 ${data.updatedAt || ''}`, 'success');
-  } catch (err) {
-    showAlert(err.message, 'danger');
-    setStatus('エラー', 'danger');
-  } finally {
-    setProcessing(false);
-  }
-}
-
 function renderWarnings(names) {
   const area = document.getElementById('alertArea');
   if (!names.length) {
@@ -463,6 +755,7 @@ function renderEditRow(row) {
     <tr
       data-edit-row
       data-row-id="${Number(row.row || 0)}"
+      data-record-id="${escapeHtml(String(row.recordId || ''))}"
       data-image-status="${escapeHtml(String(row.imageStatus || '未登録'))}"
       data-image-file-id="${escapeHtml(String(row.imageFileId || ''))}"
     >
@@ -529,6 +822,7 @@ function renderMobileEditCard(row) {
       class="mobile-edit-card"
       data-edit-row
       data-row-id="${Number(row.row || 0)}"
+      data-record-id="${escapeHtml(String(row.recordId || ''))}"
       data-image-status="${escapeHtml(String(row.imageStatus || '未登録'))}"
       data-image-file-id="${escapeHtml(String(row.imageFileId || ''))}"
     >
@@ -616,39 +910,11 @@ function findImageOption(fileId) {
   return getImageOptions().find(option => option.fileId === target) || null;
 }
 
-function addCastRow() {
-  const nameInput = document.getElementById('addCastName');
-  const workTimeInput = document.getElementById('addWorkTime');
-  const statusInput = document.getElementById('addStatus');
-
-  const castName = nameInput.value.trim();
-  if (!castName) {
-    showAlert('追加するキャスト名を入力してください。', 'warning');
-    return;
-  }
-
-  const rows = collectEditRows();
-  rows.push({
-    sortOrder: rows.length + 1,
-    castName,
-    workTime: workTimeInput.value,
-    status: statusInput.value,
-    imageStatus: '未登録',
-    imageFileId: ''
-  });
-
-  state.current = state.current || {};
-  state.current.editRows = rows;
-  renderEditTable(rows);
-  renderEditableSiftPreview();
-
-  nameInput.value = '';
-}
-
 function removeEditRow(button) {
   const row = button.closest('[data-edit-row]');
   if (row) row.remove();
   renderEditableSiftPreview();
+  updateSaveState();
 }
 
 function collectEditRows() {
@@ -659,6 +925,7 @@ function collectEditRows() {
     if (!nameEl) return;
     const imageFileId = getImageFileIdFromRow(el);
     rows.push({
+      recordId: String(el.dataset.recordId || ''),
       sortOrder: Number(el.querySelector('.js-sort-order').value) || index + 1,
       castName: nameEl.value.trim(),
       workTime: el.querySelector('.js-work-time').value,
@@ -682,6 +949,7 @@ function readEditRowsInDomOrder() {
     const imageFileId = getImageFileIdFromRow(el);
     rows.push({
       el,
+      recordId: String(el.dataset.recordId || ''),
       row: Number(el.dataset.rowId || 0),
       sortOrder: Number(el.querySelector('.js-sort-order').value) || 0,
       castName: nameEl ? nameEl.value.trim() : '',
@@ -719,6 +987,7 @@ function handleSortOrderChange(target) {
   items.splice(newPos - 1, 0, moved);
 
   const normalized = items.map((item, index) => ({
+    recordId: item.recordId,
     row: item.row,
     sortOrder: index + 1, // 必ず1から連番に正規化
     castName: item.castName,
@@ -732,26 +1001,8 @@ function handleSortOrderChange(target) {
   state.current = state.current || {};
   state.current.editRows = normalized;
   renderEditTable(normalized);
-}
-
-async function saveEditRows() {
-  const rows = collectEditRows();
-
-  if (!rows.length) {
-    showAlert('保存する行がありません。', 'warning');
-    return;
-  }
-
-  try {
-    setProcessing(true, '編集内容を保存中');
-    await Api.request('updateShiftRows', { rows });
-    await refreshCurrentShift();
-    showAlert('編集内容を保存しました。', 'success');
-  } catch (err) {
-    showAlert(err.message, 'danger');
-  } finally {
-    setProcessing(false);
-  }
+  renderEditableSiftPreview();
+  updateSaveState();
 }
 
 function renderPhotos(list) {
@@ -764,7 +1015,9 @@ function renderPhotos(list) {
 
   grid.innerHTML = list.map(c => `
     <article class="photo-card shadow-sm">
-      <img src="${escapeHtml(c.imageUrl)}" alt="${escapeHtml(c.name)}" loading="lazy">
+      ${c.imageUrl
+        ? `<img src="${escapeHtml(c.imageUrl)}" alt="${escapeHtml(c.name)}" loading="lazy">`
+        : `<div class="photo-placeholder"><span>${escapeHtml(c.name)}</span></div>`}
       ${c.usedPreparing ? '<span class="badge text-bg-warning">準備中</span>' : ''}
     </article>
   `).join('');
@@ -784,39 +1037,81 @@ function renderList(id, list, active) {
         ${escapeHtml(c.name)}
         ${c.workTime ? `<span class="badge text-bg-light border ms-1">${escapeHtml(c.workTime)}</span>` : ''}
       </span>
-      <button class="btn btn-sm ${active ? 'btn-outline-secondary' : 'btn-primary'} rounded-pill" onclick="toggleAbsent(${Number(c.row)}, ${active})">
+      <button type="button" class="btn btn-sm ${active ? 'btn-outline-secondary' : 'btn-primary'} rounded-pill js-toggle-absent"
+        data-record-id="${escapeHtml(String(c.recordId || ''))}" data-to-absent="${active ? 'true' : 'false'}" ${c.recordId ? '' : 'disabled'}>
         ${active ? '休み' : '戻す'}
       </button>
     </div>
   `).join('');
 }
 
-async function toggleAbsent(row, toAbsent) {
+// 休み切り替え
+// - 未保存の変更がある場合: サーバーに送らず画面上だけ変更（他の未保存入力を失わない）。「編集保存」で確定。
+// - 未保存の変更がない場合: その1件だけを即時保存（revision 検証あり）。
+async function toggleAbsent(recordId, toAbsent) {
+  if (!recordId || !state.current) return;
+
+  if (isDirty()) {
+    const rows = ShiftState.applyStatusLocally(collectEditRows(), recordId, toAbsent);
+    state.current.editRows = rows;
+    renderEditTable(rows);
+    renderEditableSiftPreview();
+    renderListsFromRows(rows);
+    updateSaveState();
+    showAlert('未保存の変更があるため、画面上で休み設定を変更しました。「編集保存」で確定してください。', 'info');
+    return;
+  }
+
+  const selection = Object.assign({}, state.selection);
   try {
     setProcessing(true, '更新中');
-    await Api.request('setCastAbsent', { row, isAbsent: toAbsent });
-    await refreshCurrentShift();
+    const data = await Api.write('setCastAbsent', {
+      store: selection.store,
+      date: selection.date,
+      recordId,
+      isAbsent: toAbsent,
+      expectedRevision: state.current.revision
+    }, { requestId: Api.newRequestId() });
+    assertDataMatches(data, selection);
+    applyData(data);
   } catch (err) {
-    showAlert(err.message, 'danger');
+    handleWriteError(err);
   } finally {
     setProcessing(false);
   }
 }
 
+// 画面上の編集行から出勤中 / 休み一覧を再描画（画像URLは最後に読み込んだデータを流用）
+function renderListsFromRows(rows) {
+  const known = {};
+  [].concat((state.current && state.current.activeCastList) || [], (state.current && state.current.absentCastList) || [])
+    .forEach(item => { if (item.recordId) known[item.recordId] = item; });
+  const view = rows.map(r => Object.assign({}, known[r.recordId] || {}, {
+    recordId: r.recordId, name: r.castName, castName: r.castName, workTime: r.workTime, status: r.status
+  }));
+  renderList('activeList', view.filter(v => v.status !== '休み'), true);
+  renderList('absentList', view.filter(v => v.status === '休み'), false);
+}
+
 async function checkImages() {
+  if (!state.selection.store) {
+    showAlert('店舗と日付を選択してください。', 'warning');
+    return;
+  }
   try {
     setProcessing(true, '画像確認中');
-    const result = await Api.request('checkImages');
+    const result = await Api.write('checkImages', { store: state.selection.store, date: state.selection.date }, { requestId: Api.newRequestId() });
     showAlert(
       result.missingCount ? `画像未登録: ${result.missingNames.join('、')}` : '画像未登録はありません。',
       result.missingCount ? 'warning' : 'success'
     );
   } catch (err) {
-    showAlert(err.message, 'danger');
+    handleWriteError(err);
   } finally {
     setProcessing(false);
   }
 }
+
 
 async function exportImage() {
   try {
@@ -832,7 +1127,9 @@ async function exportImage() {
 
     const a = document.createElement('a');
     a.href = canvas.toDataURL('image/png');
-    a.download = 'shift-image.png';
+    a.download = state.selection.store && state.selection.date
+      ? `shift-image_${state.selection.store}_${state.selection.date}.png`
+      : 'shift-image.png';
     a.click();
   } catch (err) {
     showAlert(err.message, 'danger');

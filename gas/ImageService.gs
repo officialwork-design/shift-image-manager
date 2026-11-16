@@ -1,15 +1,18 @@
 const IMAGE_CACHE_KEY = 'SHIFT_IMAGE_MAP_V5';
 const IMAGE_FOLDER_MAX_DEPTH = 5;
+const IMAGE_CACHE_MAX_BYTES = 95 * 1024;
 
 const ImageService = {
   refreshCache() {
     const config = ConfigService.getConfig();
     const data = this.getDriveImagesRaw_();
     const imageCount = data.imageFiles ? data.imageFiles.length : Object.keys(data.imageMap).length;
-    CacheService.getScriptCache().put(IMAGE_CACHE_KEY, JSON.stringify(data), Number(config.IMAGE_CACHE_SECONDS || DEFAULT_CONFIG.IMAGE_CACHE_SECONDS));
-    LogService.operation('画像キャッシュ更新', '', '', '', '', 'imageCount=' + imageCount + ', folderCount=' + data.folderCount, '成功');
+    const cacheResult = this.putCache_(data, config);
+    LogService.operation('画像キャッシュ更新', '', '', '', '', 'imageCount=' + imageCount + ', folderCount=' + data.folderCount + ', cached=' + cacheResult.cached, '成功', cacheResult.reason || '');
     return {
       success: true,
+      cached: cacheResult.cached,
+      cacheReason: cacheResult.reason || '',
       imageCount,
       hasPreparingImage: !!data.preparingImageId,
       folderCount: data.folderCount,
@@ -32,8 +35,38 @@ const ImageService = {
 
     const config = ConfigService.getConfig();
     const data = this.getDriveImagesRaw_();
-    cache.put(IMAGE_CACHE_KEY, JSON.stringify(data), Number(config.IMAGE_CACHE_SECONDS || DEFAULT_CONFIG.IMAGE_CACHE_SECONDS));
+    this.putCache_(data, config);   // キャッシュ保存に失敗してもデータは返す
     return data;
+  },
+
+  // CacheService は 1 値 100KB まで。超過・例外時はキャッシュせず続行する（毎回 Drive を走査するため遅くなる）。
+  putCache_(data, config) {
+    const json = JSON.stringify(data);
+    const bytes = Utilities.newBlob(json).getBytes().length;
+    if (bytes > IMAGE_CACHE_MAX_BYTES) {
+      this.warnCacheOnce_('size', 'imageCacheBytes=' + bytes);
+      return { cached: false, reason: 'TOO_LARGE(' + bytes + 'bytes)' };
+    }
+    try {
+      CacheService.getScriptCache().put(IMAGE_CACHE_KEY, json, Number(config.IMAGE_CACHE_SECONDS || DEFAULT_CONFIG.IMAGE_CACHE_SECONDS));
+      return { cached: true };
+    } catch (err) {
+      this.warnCacheOnce_('put', Utils.errorMessage(err));
+      return { cached: false, reason: 'PUT_FAILED' };
+    }
+  },
+
+  // 同じ警告でエラーログを埋めないよう、1時間に1回だけ記録する
+  warnCacheOnce_(kind, detail) {
+    try {
+      const cache = CacheService.getScriptCache();
+      const flag = 'IMAGE_CACHE_WARN_' + kind;
+      if (cache.get(flag)) return;
+      cache.put(flag, '1', 3600);
+    } catch (err) {
+      // キャッシュ自体が使えない場合も記録だけは試みる
+    }
+    LogService.error('ImageService.cache', Utils.apiError('IMAGE_CACHE_SKIPPED', '画像キャッシュを保存できませんでした: ' + kind), { detail });
   },
 
   getDataUrl(fileId) {
@@ -48,31 +81,25 @@ const ImageService = {
     return 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(fileId) + '&sz=' + encodeURIComponent(safeSize);
   },
 
-  checkImages() {
+  // Phase 1.5: 店舗×日付の保存データを対象にチェック（旧 画像生成 シートは参照しない）
+  checkImages(store, date, ctx) {
+    const target = Utils.requireStoreAndIsoDate(store, date);
     const config = ConfigService.getConfig();
-    const sheet = SpreadsheetService.getSheet(config.SHEET_IMAGE_GENERATION);
-    const rowCount = SHEET_LAYOUT.CAST_END_ROW - SHEET_LAYOUT.CAST_START_ROW + 1;
-    const width = SHEET_LAYOUT.IMAGE_FILE_ID_COLUMN - SHEET_LAYOUT.CAST_NAME_COLUMN + 1;
-    const rows = sheet.getRange(SHEET_LAYOUT.CAST_START_ROW, SHEET_LAYOUT.CAST_NAME_COLUMN, rowCount, width)
-      .getDisplayValues()
-      .map(row => ({
-        name: String(row[0] || '').trim(),
-        imageFileId: String(row[4] || '').trim()
-      }))
-      .filter(row => row.name);
+    const saved = ShiftRepository.readCommitted(target.store, target.date);
     const imageData = this.getDriveImagesCached();
-    const missingNames = rows
-      .filter(row => !row.imageFileId && !this.findImageIdForCast_(imageData.imageMap || {}, row.name))
-      .map(row => row.name);
+    const missingNames = saved.rows
+      .filter(row => !row.imageFileId && !this.findImageIdForCast_(imageData.imageMap || {}, row.castName))
+      .map(row => row.castName);
 
     if (missingNames.length) {
       const now = Utils.now();
-      const rows = missingNames.map(name => [now, '画像未登録', name, 'Drive内に同名画像がありません']);
+      const rows = missingNames.map(name => [now, '画像未登録', name, target.store + ' / ' + target.date + ' : Drive内に同名画像がありません']);
       SpreadsheetService.appendRows(config.SHEET_IMAGE_CHECK, rows);
     }
 
-    LogService.operation('画像未登録チェック', '', '', '', '', 'missingCount=' + missingNames.length, '成功');
-    return { success: true, missingCount: missingNames.length, missingNames };
+    LogService.audit({ action: '画像未登録チェック', store: target.store, date: target.date, revision: saved.revision,
+      user: ctx && ctx.user, result: '成功', detail: 'missingCount=' + missingNames.length });
+    return { success: true, store: target.store, date: target.date, missingCount: missingNames.length, missingNames };
   },
 
   findImageIdForCast(imageMap, castName) {

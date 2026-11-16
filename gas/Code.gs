@@ -35,8 +35,29 @@ const DEFAULT_CONFIG = {
   DRIVE_OUTPUT_FOLDER_ID: '',
   TIMEZONE: 'Asia/Tokyo',
   APP_MODE: 'production',
-  IMAGE_CACHE_SECONDS: 600
+  IMAGE_CACHE_SECONDS: 600,
+  SHEET_SHIFT_EDIT: 'シフト編集',
+  SHEET_SHIFT_EDIT_MANAGE: 'シフト編集管理'
 };
+
+// 店舗×日付別 編集データ保存の設定（Phase 1.5）
+const SHIFT_STORAGE = {
+  LOCK_TIMEOUT_MS: 10000,        // LockService 取得待ち上限
+  KEEP_GENERATIONS: 3,           // 店舗×日付ごとに保持する世代数（コミット済み世代を含む）
+  MAX_ROWS_PER_SHIFT: 78,        // 旧 画像生成 H3:M80 と同じ上限
+  MAX_CAST_NAME_LENGTH: 30,
+  DATE_RESOLVE_WINDOW_DAYS: 185  // 「M月D日(曜)」から年を確定する際の許容範囲（今日±日数）
+};
+
+const SHIFT_EDIT_HEADERS = [
+  'recordId', 'store', 'date', 'castName', 'workTime', 'status',
+  'sortOrder', 'imageFileId', 'createdAt', 'updatedAt', 'revision'
+];
+
+const SHIFT_MANAGE_HEADERS = [
+  'key', 'store', 'date', 'revision', 'initialized', 'rowCount',
+  'createdAt', 'updatedAt', 'updatedBy', 'lastRequestId', 'source'
+];
 
 const SHEET_LAYOUT = {
   CAST_START_ROW: 3,
@@ -59,6 +80,10 @@ function onOpen() {
       .addSeparator()
       .addItem('画像キャッシュ更新', 'refreshImageCacheFromMenu')
       .addItem('画像未登録チェック', 'checkImagesFromMenu')
+      .addSeparator()
+      .addItem('旧データ移行: バックアップ作成', 'migrationBackup')
+      .addItem('旧データ移行: dry-run', 'migrationDryRun')
+      .addItem('旧データ移行: 実行', 'migrationExecute')
       .addToUi();
   } catch (err) {
     // Standalone WebApp execution has no spreadsheet UI.
@@ -78,7 +103,11 @@ function refreshImageCacheFromMenu() {
 }
 
 function checkImagesFromMenu() {
-  const result = ImageService.checkImages();
+  const ui = SpreadsheetApp.getUi();
+  const answer = ui.prompt('画像未登録チェック', '対象を「店舗:YYYY-MM-DD」で入力（例 KABUKI:2026-11-16）', ui.ButtonSet.OK_CANCEL);
+  if (answer.getSelectedButton() !== ui.Button.OK) return null;
+  const parts = String(answer.getResponseText() || '').split(':');
+  const result = ImageService.checkImages(parts[0], parts[1], { user: 'menu' });
   showMenuMessage_('画像未登録チェック', result.missingCount ? result.missingNames.join('\n') : '画像未登録はありません。');
   return result;
 }
