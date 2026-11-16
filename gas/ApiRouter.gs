@@ -110,6 +110,9 @@ const ApiRouter = {
     const action = request.action;
     const payload = request.payload || {};
 
+    // 環境設定の安全確認（本番IDの混入・環境の取り違え）を最初に行い、問題があれば何もしない
+    ConfigService.getEnvironment();
+
     if (API_REMOVED_ACTIONS[action]) {
       throw Utils.apiError('LEGACY_API_REMOVED', action + ' は廃止されました。' + API_REMOVED_ACTIONS[action]);
     }

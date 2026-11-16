@@ -34,6 +34,16 @@ function makeToken(claims, opts) {
   return input + '.' + b64u(sig);
 }
 
+// ヘッダー・ペイロードの JSON 文字列をそのまま署名する（重複キー・非正規表記などの検証用）
+function makeRawToken(headerJson, payloadJson, opts) {
+  const o = opts || {};
+  const key = o.key || KEYS.main;
+  const h = o.headerB64 || b64u(headerJson);
+  const p = o.payloadB64 || b64u(payloadJson);
+  const input = h + '.' + p;
+  return input + '.' + b64u(crypto.sign('sha256', Buffer.from(input), key.privateKey));
+}
+
 // UrlFetchApp モック用（Google の JWKS エンドポイント相当）
 function jwksHandler(state) {
   const st = state || { keys: [KEYS.main] };
@@ -51,4 +61,4 @@ const USERS = {
   stranger: { sub: '100000000000000000009', email: 'stranger@example.com' }
 };
 
-module.exports = { CLIENT_ID, OTHER_CLIENT_ID, KEYS, makeToken, jwksHandler, USERS, b64u };
+module.exports = { CLIENT_ID, OTHER_CLIENT_ID, KEYS, makeToken, makeRawToken, jwksHandler, USERS, b64u };

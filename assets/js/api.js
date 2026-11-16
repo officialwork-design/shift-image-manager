@@ -48,20 +48,38 @@ const Api = (() => {
       if (err && err.name === 'AbortError') {
         throw apiError('TIMEOUT', '通信がタイムアウトしました。保存操作の場合は、保存されたか最新データを確認してください');
       }
-      throw apiError('NETWORK', '通信に失敗しました: ' + (err && err.message ? err.message : err));
+      // fetch の TypeError は「通信できない」か「CORS で応答を読めない」のどちらか（ブラウザは区別できない）
+      throw apiError('NETWORK', '通信に失敗しました（ネットワーク、または CORS により応答を読めません）: ' + (err && err.message ? err.message : err));
     } finally {
       clearTimeout(timer);
     }
+    return parseResponse(res);
+  }
+
+  // 応答の検証。成功／失敗の判定は JSON 本文の success で行い、読めない応答は成功扱いにしない
+  async function parseResponse(res) {
+    if (!res || res.type === 'opaque' || res.type === 'opaqueredirect') {
+      throw apiError('INVALID_RESPONSE', 'サーバーの応答を読み取れません（不透明レスポンス）');
+    }
+    const text = await res.text();
+    if (/^\s*</.test(text)) {
+      // GAS がログイン画面やエラーページ（HTML）を返した：デプロイのアクセス設定・URL の誤り
+      throw apiError('GAS_HTML_RESPONSE', 'サーバーが JSON ではなく HTML を返しました（HTTP ' + res.status + '）。WebApp の URL・公開設定を確認してください');
+    }
     let data;
     try {
-      data = await res.json();
+      data = JSON.parse(text);
     } catch (err) {
-      throw apiError('NETWORK', 'サーバーの応答を読み取れませんでした（HTTP ' + res.status + '）');
+      throw apiError('INVALID_RESPONSE', 'サーバーの応答を読み取れませんでした（HTTP ' + res.status + '）');
     }
-    if (!data || !data.success) {
-      const error = (data && data.error) || {};
-      throw apiError(error.code || (data && data.code) || 'API_ERROR', (data && data.message) || error.message || 'API error', error.details, data && data.status);
+    if (!data || typeof data !== 'object' || typeof data.success !== 'boolean') {
+      throw apiError('INVALID_RESPONSE', 'サーバーの応答形式が不正です');
     }
+    if (!data.success) {
+      const error = data.error || {};
+      throw apiError(error.code || data.code || 'API_ERROR', data.message || error.message || 'API error', error.details, data.status);
+    }
+    if (!res.ok) throw apiError('INVALID_RESPONSE', 'サーバーの応答が異常です（HTTP ' + res.status + '）');
     return data.data;
   }
 
@@ -84,5 +102,5 @@ const Api = (() => {
   }
 
   // Phase 1.5 互換の名前（すべて認証付き POST）
-  return { call, publicCall, write: call, read: call, setTokenProvider, newRequestId };
+  return { call, publicCall, write: call, read: call, setTokenProvider, newRequestId, parseResponse };
 })();

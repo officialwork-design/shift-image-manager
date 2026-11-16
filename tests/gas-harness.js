@@ -59,6 +59,7 @@ class FakeSheet {
   }
   deleteRows(start, count) { this.ss.onWrite(this); this.rows.splice(start - 1, count); }
   setFrozenRows() {}
+  clearContents() { this.ss.onWrite(this); this.rows = []; }
   copyTo(ss) { const s = ss.insertSheet('Copy of ' + this.name); s.rows = JSON.parse(JSON.stringify(this.rows)); return s; }
 }
 
@@ -66,7 +67,7 @@ class FakeSpreadsheet {
   constructor() { this.sheets = {}; this.failAfterWrites = Infinity; this.writeCount = 0; this.failOnSheet = null; }
   getSheetByName(n) { return this.sheets[n] || null; }
   insertSheet(n) { const s = new FakeSheet(this, n); this.sheets[n] = s; return s; }
-  getId() { return 'TEST_SPREADSHEET'; }
+  getId() { return this.id || 'TEST_SPREADSHEET'; }
   onWrite(sheet) {
     if (this.failOnSheet && sheet.name !== this.failOnSheet) return;
     this.writeCount += 1;
@@ -83,11 +84,19 @@ function createGasContext(opts) {
   const lockState = options.lockState || { held: false, forceTimeout: false };
   let uuidSeq = 0;
   const fetchLog = options.fetchLog || [];
+  const openLog = [];
 
   const context = {
     console,
     Logger: { log() {} },
-    SpreadsheetApp: { openById: () => ss, flush() {}, getUi() { throw new Error('no ui'); } },
+    SpreadsheetApp: {
+      openById: id => {
+        if (options.openableIds && options.openableIds.indexOf(id) === -1) throw new Error('Spreadsheet not found or no access: ' + id);
+        openLog.push(id);
+        return ss;
+      },
+      flush() {}, getUi() { throw new Error('no ui'); }
+    },
     CacheService: {
       getScriptCache: () => ({
         get: k => (k in cacheStore ? cacheStore[k] : null),
@@ -108,7 +117,8 @@ function createGasContext(opts) {
         releaseLock() { lockState.held = false; }
       })
     },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in props ? props[k] : null) }) },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in props ? props[k] : null), getProperties: () => Object.assign({}, props) }) },
+    ScriptApp: { getScriptId: () => options.scriptId || '1m0G9Y3ATR885RDD1LBEjp5Zsc5Ts4qv_hq1q9kFw3Xe0WmKy5DQVnATS' },
     Utilities: {
       formatDate(date, _tz, pattern) {
         // JST 固定（テスト用）
@@ -168,10 +178,10 @@ function createGasContext(opts) {
   const gasDir = path.join(__dirname, '..', 'gas');
   const files = fs.readdirSync(gasDir).filter(f => f.endsWith('.gs')).sort();
   const source = files.map(f => fs.readFileSync(path.join(gasDir, f), 'utf8')).join('\n;\n') +
-    '\n;this.__gas = { ShiftService, ShiftRepository, SiftService, ImageService, AuthService, ApiRouter, MigrationService, ConfigService, LogService, SpreadsheetService, Utils, doGet, doPost, SHIFT_EDIT_HEADERS, SHIFT_MANAGE_HEADERS, SHIFT_STORAGE, setupShiftImageManager, GoogleIdTokenVerifier, AccessControlService, GOOGLE_ID_TOKEN };';
+    '\n;this.__gas = { ShiftService, ShiftRepository, SiftService, ImageService, AuthService, ApiRouter, MigrationService, ConfigService, LogService, SpreadsheetService, Utils, doGet, doPost, SHIFT_EDIT_HEADERS, SHIFT_MANAGE_HEADERS, SHIFT_STORAGE, setupShiftImageManager, GoogleIdTokenVerifier, AccessControlService, GOOGLE_ID_TOKEN, authSelfTest, setupTestFixtures, TestFixtures, API_PROTECTED_ACTIONS, API_PUBLIC_ACTIONS, API_REMOVED_ACTIONS };';
   vm.createContext(context);
   vm.runInContext(source, context, { filename: 'gas-bundle.js' });
-  return { gas: context.__gas, ss, cacheStore, props, lockState, context, fetchLog };
+  return { gas: context.__gas, ss, cacheStore, props, lockState, context, fetchLog, openLog };
 }
 
 // 標準的なテスト用スプレッドシート（SIFT_DATA・画像フォルダ・ログ）

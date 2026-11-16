@@ -211,8 +211,9 @@ const ImageService = {
   },
 
   getImageFolderIds_(config) {
+    // 既定値は ConfigService.getConfig で決まる（テスト環境では本番フォルダへフォールバックしない）
     const rawValues = [
-      config.DRIVE_IMAGE_FOLDER_ID || DEFAULT_CONFIG.DRIVE_IMAGE_FOLDER_ID,
+      config.DRIVE_IMAGE_FOLDER_ID || '',
       config.DRIVE_IMAGE_FOLDER_IDS || ''
     ];
     const seen = {};

@@ -78,7 +78,8 @@
     }
     if (code === 'LOCK_TIMEOUT') return { kind: 'lock', message: message || '他の保存処理が実行中です。' };
     if (code === 'NOT_INITIALIZED') return { kind: 'notInitialized', message: message || '保存データがありません。' };
-    if (code === 'TIMEOUT' || code === 'NETWORK') return { kind: 'network', message: message || '通信に失敗しました。' };
+    if (['TIMEOUT', 'NETWORK', 'INVALID_RESPONSE', 'GAS_HTML_RESPONSE'].indexOf(code) !== -1) return { kind: 'network', message: message || '通信に失敗しました。' };
+    if (code.indexOf('CONFIG_') === 0) return { kind: 'authUnavailable', message: message || 'サーバーの設定に問題があるため停止しています。' };
     return { kind: 'other', message: message || 'エラーが発生しました。' };
   }
 

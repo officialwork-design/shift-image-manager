@@ -47,6 +47,9 @@ async function openApp(browser, h, log, opts) {
       if (req.method() === 'POST') {
         const body = JSON.parse(req.postData());
         log.push('POST ' + body.action);
+        const override = h.override && h.override[body.action];
+        if (override === 'abort') return route.abort('failed');
+        if (override === 'html') return route.fulfill({ status: 200, contentType: 'text/html', headers: { 'Access-Control-Allow-Origin': '*' }, body: '<!DOCTYPE html><html><body>Sorry, unable to open the file at this time.</body></html>' });
         if (url.search) log.push('URL_HAS_QUERY ' + url.search);
         if (h.delay && h.delay[body.action]) await new Promise(r => setTimeout(r, h.delay[body.action]));
         const out = h.gas.doPost({ parameter: {}, postData: { contents: req.postData() } });
@@ -64,6 +67,9 @@ async function openApp(browser, h, log, opts) {
       const m = url.pathname.match(/\/npm\/(bootstrap|html2canvas)@[^/]+\/(.*)$/);
       return route.fulfill({ path: path.join(CDN_DIR, m[1], m[2]) });
     }
+    if (url.hostname === 'app.test' && url.pathname === '/config.js' && opts && opts.configJs) {
+      return route.fulfill({ status: 200, contentType: 'application/javascript', body: opts.configJs });
+    }
     if (url.hostname === 'app.test') {
       const file = path.join(ROOT, url.pathname === '/' ? 'index.html' : decodeURIComponent(url.pathname));
       return route.fulfill({ path: file });
@@ -72,7 +78,8 @@ async function openApp(browser, h, log, opts) {
     return route.abort();
   });
   await page.goto(APP);
-  await page.waitForFunction(() => window.__gis && ['signedOut', 'signedIn', 'verifying'].includes(state.authView));
+  if (opts && opts.waitView) await page.waitForFunction(v => state.authView === v, opts.waitView);
+  else await page.waitForFunction(() => window.__gis && ['signedOut', 'signedIn', 'verifying'].includes(state.authView));
   return page;
 }
 
@@ -389,6 +396,66 @@ test('E2E: Google ログイン・許可リスト・ロール・期限切れ・�
 
     assert.deepEqual(log.filter(l => l.startsWith('pageerror')), []);
     assert.equal(log.filter(l => /^GET /.test(l)).length, 0, 'GAS への通信はすべて POST');
+  } finally {
+    await browser.close();
+  }
+});
+
+test('E2E: 通信失敗・HTML 応答・環境の取り違え・認証状態の復旧（Phase 1.7）', { skip: !hasCdn && 'CDN_DIR がありません' }, async (t) => {
+  const h = setup({ realTime: true });
+  const browser = await chromium.launch();
+  const log = [];
+  try {
+    await t.test('画面の APP_ENV とサーバーの環境が違えば停止（テスト用ページから本番へ送らない）', async () => {
+      const cfg = fs.readFileSync(path.join(ROOT, 'config.js'), 'utf8').replace("APP_ENV: 'production'", "APP_ENV: 'test'");
+      const p = await openApp(browser, h, log, { configJs: cfg, waitView: 'blocked' });
+      assert.match(await p.textContent('#authMessage'), /接続先の環境が一致しません/);
+      assert.equal(await p.isVisible('.mock-gsi-button'), false, 'ログインさせない');
+      assert.ok(!log.some(l => l === 'POST whoAmI'), '認証付き API を送らない');
+      await p.close();
+    });
+
+    const page = await openApp(browser, h, log);
+    await signIn(page, tokenOf('editor'), 'signedIn');
+    await page.waitForFunction(() => document.querySelectorAll('#datePicker option').length > 1);
+    await select(page, 'KABUKI', '2026-11-16');
+
+    await t.test('通信失敗（ネットワーク・CORS）: エラー表示・入力は保持・成功扱いしない', async () => {
+      h.override = { saveShift: 'abort' };
+      await page.selectOption('#editTableArea [data-edit-row]:nth-child(1) .js-work-time', '21:30');
+      await page.click('#saveRowsButton'); await waitIdle(page);
+      assert.match(await page.textContent('#alertArea'), /通信に失敗しました/);
+      assert.match(await page.textContent('#saveState'), /未保存の変更あり/);
+      assert.equal((await editTimes(page))[0], '21:30');
+      assert.equal(h.gas.ShiftService.getSavedShift('KABUKI', '2026-11-16').revision, 1);
+      h.override = {};
+    });
+
+    await t.test('GAS が HTML を返した（デプロイ設定の誤り等）: 成功扱いせず原因を表示', async () => {
+      h.override = { saveShift: 'html' };
+      await page.click('#saveRowsButton'); await waitIdle(page);
+      assert.match(await page.textContent('#alertArea'), /HTML を返しました/);
+      assert.match(await page.textContent('#saveState'), /未保存の変更あり/);
+      h.override = {};
+      await page.click('#saveRowsButton'); await waitIdle(page);
+      assert.match(await page.textContent('#saveState'), /保存済み rev 2/, '復旧後に保存できる');
+    });
+
+    await t.test('認証状態の復旧: サーバーが AUTH_INVALID を返した後、再ログインで同じ入力を保存', async () => {
+      await page.selectOption('#editTableArea [data-edit-row]:nth-child(2) .js-work-time', '17:30');
+      // サーバー側の OAuth クライアントID 変更（＝手元のトークンが別クライアント向けになった）を再現
+      const original = h.props.GOOGLE_OAUTH_CLIENT_ID;
+      h.props.GOOGLE_OAUTH_CLIENT_ID = '999999999999-otherclient.apps.googleusercontent.com';
+      await page.click('#saveRowsButton'); await waitIdle(page);
+      await page.waitForFunction(() => state.authView === 'expired');
+      assert.equal((await editTimes(page))[1], '17:30');
+      h.props.GOOGLE_OAUTH_CLIENT_ID = original;
+      await signIn(page, tokenOf('editor'), 'signedIn');
+      await page.click('#saveRowsButton'); await waitIdle(page);
+      assert.equal(h.gas.ShiftService.getSavedShift('KABUKI', '2026-11-16').editRows[1].workTime, '17:30');
+    });
+
+    assert.deepEqual(log.filter(l => l.startsWith('pageerror')), []);
   } finally {
     await browser.close();
   }

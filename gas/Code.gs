@@ -1,6 +1,15 @@
 const BOOTSTRAP_SPREADSHEET_ID = '1s-Ga2SpUWzoKQHSOymqo5MCO_wgdevFKrQWHUIKvct0';
 const SCRIPT_ID = '1m0G9Y3ATR885RDD1LBEjp5Zsc5Ts4qv_hq1q9kFw3Xe0WmKy5DQVnATS';
 
+// 本番リソースのID。テスト環境（APP_ENV=test）でこれらが設定に含まれていたら全処理を停止する（Phase 1.7）
+const PRODUCTION_RESOURCE_IDS = [
+  BOOTSTRAP_SPREADSHEET_ID,
+  SCRIPT_ID,
+  '1Ob0yiSr0yP_sHa72t9xg8xmGn5YEUYR-',   // 本番 画像フォルダ
+  '17zZbEhzgr3Fp_yfdox3zWLhO5kSUwvhZ',   // 本番 追加画像フォルダ
+  'AKfycbz-NSM70nThVEJkTZ3FUaf81pwZD-ykLvXbjfHOM_Nnf6sUSiHt8JK_D5TnQ4A9InU_'   // 本番 WebApp デプロイ
+];
+
 const STORE_NAMES = ['KABUKI', 'AKIBA'];
 const SHIFT_STATUSES = ['出勤', '休み'];
 const WORK_TIME_OPTIONS = [

@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GAS 通信検証（テスト環境専用）</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "Hiragino Sans", sans-serif; margin: 16px; line-height: 1.5; }
+    input { width: 100%; padding: 6px; font-size: 14px; box-sizing: border-box; }
+    button { padding: 8px 14px; margin: 6px 6px 6px 0; font-size: 14px; }
+    table { border-collapse: collapse; width: 100%; font-size: 13px; }
+    td, th { border: 1px solid #ccc; padding: 4px 6px; vertical-align: top; text-align: left; }
+    .PASS { color: #146c43; font-weight: bold; } .FAIL { color: #b02a37; font-weight: bold; } .INFO { color: #555; }
+    pre { background: #f5f5f5; padding: 8px; white-space: pre-wrap; word-break: break-all; font-size: 12px; }
+    .warn { background: #fff3cd; padding: 8px; border: 1px solid #ffe69c; }
+  </style>
+</head>
+<body>
+  <h1 style="font-size:18px">GAS 通信検証（テスト環境専用）</h1>
+  <p class="warn">本番の WebApp URL では実行できません。結果は下の「結果 JSON」を報告に貼り付けてください。トークンの値は結果に含めません。</p>
+  <label>テスト用 GAS WebApp URL<input id="url" placeholder="https://script.google.com/macros/s/.../exec"></label>
+  <div>
+    <button id="runBasic">1. 基本検証（ログイン不要）</button>
+    <button id="login">2. Google でログイン</button>
+    <button id="runAuth" disabled>3. 認証付き検証</button>
+  </div>
+  <div id="gsi"></div>
+  <table><thead><tr><th>#</th><th>確認項目</th><th>結果</th><th>詳細</th></tr></thead><tbody id="rows"></tbody></table>
+  <h2 style="font-size:15px">結果 JSON</h2>
+  <pre id="report"></pre>
+<script>
+(function () {
+  const PROD_DEPLOYMENT = 'AKfycbz-NSM70nThVEJkTZ3FUaf81pwZD-ykLvXbjfHOM_Nnf6sUSiHt8JK_D5TnQ4A9InU_';
+  const results = [];
+  let idToken = null;
+  const $ = id => document.getElementById(id);
+
+  function record(name, status, detail) {
+    results.push({ name, status, detail });
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${results.length}</td><td></td><td class="${status}">${status}</td><td></td>`;
+    tr.children[1].textContent = name; tr.children[3].textContent = typeof detail === 'string' ? detail : JSON.stringify(detail);
+    $('rows').appendChild(tr);
+    $('report').textContent = JSON.stringify({ userAgent: navigator.userAgent, pageOrigin: location.origin, at: new Date().toISOString(), results }, null, 2);
+  }
+
+  function url() {
+    const u = $('url').value.trim();
+    if (!/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.test(u)) throw new Error('WebApp URL の形式が不正です');
+    if (u.indexOf(PROD_DEPLOYMENT) !== -1) throw new Error('本番の WebApp URL は使用できません');
+    return u;
+  }
+
+  // アプリ（assets/js/api.js）と同じ送り方：POST / text/plain / credentials omit / 独自ヘッダーなし
+  async function send(body, init) {
+    const started = performance.now();
+    const res = await fetch(url(), Object.assign({
+      method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body),
+      redirect: 'follow', credentials: 'omit', cache: 'no-store'
+    }, init || {}));
+    const text = await res.text();
+    let json = null; try { json = JSON.parse(text); } catch (e) { /* not json */ }
+    return { type: res.type, status: res.status, redirected: res.redirected, finalOrigin: res.url ? new URL(res.url).origin : '', ms: Math.round(performance.now() - started), json, head: text.slice(0, 120) };
+  }
+
+  async function step(name, fn) {
+    try { const r = await fn(); record(name, r.status, r.detail); } catch (e) { record(name, 'FAIL', (e && e.name) + ': ' + (e && e.message)); }
+  }
+
+  $('runBasic').onclick = async () => {
+    await step('POST 送信と成功応答の読み取り（getPublicConfig）', async () => {
+      const r = await send({ action: 'getPublicConfig', payload: {} });
+      const ok = r.type === 'cors' && r.json && r.json.success === true;
+      return { status: ok ? 'PASS' : 'FAIL', detail: { type: r.type, status: r.status, redirected: r.redirected, finalOrigin: r.finalOrigin, ms: r.ms, environment: r.json && r.json.data && r.json.data.environment, authConfigured: r.json && r.json.data && r.json.data.authConfigured, head: r.json ? undefined : r.head } };
+    });
+    await step('サーバー環境が test であること', async () => {
+      const r = await send({ action: 'getPublicConfig', payload: {} });
+      return { status: r.json && r.json.data && r.json.data.environment === 'test' ? 'PASS' : 'FAIL', detail: r.json && r.json.data };
+    });
+    await step('失敗応答の読み取り（認証なし whoAmI → AUTH_REQUIRED）', async () => {
+      const r = await send({ action: 'whoAmI', payload: {} });
+      return { status: r.json && r.json.success === false && r.json.code === 'AUTH_REQUIRED' ? 'PASS' : 'FAIL', detail: { type: r.type, code: r.json && r.json.code, status: r.json && r.json.status } };
+    });
+    await step('不正なトークン → AUTH_INVALID', async () => {
+      const r = await send({ action: 'whoAmI', payload: {}, auth: { idToken: 'a.b.c' } });
+      return { status: r.json && r.json.code === 'AUTH_INVALID' ? 'PASS' : 'FAIL', detail: { code: r.json && r.json.code } };
+    });
+    await step('保護 API を GET で呼ぶ → METHOD_NOT_ALLOWED', async () => {
+      const res = await fetch(url() + '?action=whoAmI&payload=%7B%7D', { credentials: 'omit' });
+      const j = await res.json().catch(() => null);
+      return { status: j && j.code === 'METHOD_NOT_ALLOWED' ? 'PASS' : 'FAIL', detail: { type: res.type, code: j && j.code } };
+    });
+    await step('（参考）application/json はプリフライトで失敗する', async () => {
+      try { await send({ action: 'getPublicConfig', payload: {} }, { headers: { 'Content-Type': 'application/json' } }); return { status: 'INFO', detail: '送信できた（想定外。DevTools で OPTIONS を確認）' }; }
+      catch (e) { return { status: 'PASS', detail: '失敗（想定どおり）: ' + e.message }; }
+    });
+    await step('（参考）no-cors は内容を読めない（成功判定に使わない）', async () => {
+      const res = await fetch(url(), { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain' }, body: '{"action":"getPublicConfig","payload":{}}' });
+      return { status: res.type === 'opaque' ? 'PASS' : 'INFO', detail: { type: res.type, status: res.status } };
+    });
+  };
+
+  $('login').onclick = async () => {
+    try {
+      const cfg = (await send({ action: 'getPublicConfig', payload: {} })).json.data;
+      if (!cfg.googleClientId) throw new Error('サーバーの認証設定がありません');
+      await new Promise((resolve, reject) => {
+        if (window.google && window.google.accounts) return resolve();
+        const s = document.createElement('script'); s.src = 'https://accounts.google.com/gsi/client'; s.onload = resolve; s.onerror = () => reject(new Error('GIS を読み込めません')); document.head.appendChild(s);
+      });
+      google.accounts.id.initialize({ client_id: cfg.googleClientId, callback: r => { idToken = r.credential; $('runAuth').disabled = false; record('Google ログイン（ID トークン取得）', 'PASS', 'トークン長 ' + idToken.length + ' 文字（値は記録しない）'); } });
+      google.accounts.id.renderButton($('gsi'), { type: 'standard', size: 'large' });
+      google.accounts.id.prompt();
+    } catch (e) { record('Google ログイン', 'FAIL', e.message); }
+  };
+
+  $('runAuth').onclick = async () => {
+    await step('認証付き POST（whoAmI）・サーバー側検証・許可リスト', async () => {
+      const r = await send({ action: 'whoAmI', payload: {}, auth: { idToken } });
+      return { status: r.json && r.json.success ? 'PASS' : 'FAIL', detail: r.json && r.json.success ? { role: r.json.data.role, ms: r.ms } : { code: r.json && r.json.code, reason: r.json && r.json.error && r.json.error.details && r.json.error.details.reason } };
+    });
+    await step('認証付き読み取り（getDateOptions）', async () => {
+      const r = await send({ action: 'getDateOptions', payload: {}, auth: { idToken } });
+      return { status: r.json && r.json.success ? 'PASS' : 'FAIL', detail: r.json && r.json.success ? { dates: r.json.data.filter(d => d.ok).length, ms: r.ms } : { code: r.json && r.json.code } };
+    });
+    await step('別クライアント向け相当（トークン末尾改ざん）→ AUTH_INVALID', async () => {
+      const r = await send({ action: 'whoAmI', payload: {}, auth: { idToken: idToken.slice(0, -4) + (idToken.slice(-4) === 'AAAA' ? 'BBBB' : 'AAAA') } });
+      return { status: r.json && r.json.code === 'AUTH_INVALID' ? 'PASS' : 'FAIL', detail: { code: r.json && r.json.code } };
+    });
+  };
+})();
+</script>
+</body>
+</html>

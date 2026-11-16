@@ -2,8 +2,8 @@
 
 SIFT_DATA の投稿文から店舗・日付別の出勤キャストを抽出し、Google Drive の画像と紐付けて画像シフトを管理する Web システムです。
 
-> **Phase 1.5（店舗×日付別の編集データ永続保存）と Phase 1.6（Google ログイン・許可リスト）はローカル実装のみで、本番（GAS / Spreadsheet / GitHub Pages / Google Cloud）には未反映です。**
-> 実 GAS・実 Google ログインでの検証は未実施です。詳細は下記「Phase 1.5」「Phase 1.6」と [docs/AUTH_DESIGN.md](docs/AUTH_DESIGN.md)。
+> **Phase 1.5（店舗×日付別の編集データ永続保存）・Phase 1.6（Google ログイン・許可リスト）・Phase 1.7（テスト環境分離・検証準備）はローカル実装のみで、本番（GAS / Spreadsheet / GitHub Pages / Google Cloud）には未反映です。**
+> 実 GAS・実 Google ログインでの検証は未実施です（テスト環境の作成承認待ち）。詳細は下記「Phase 1.5」「Phase 1.6」と [docs/AUTH_DESIGN.md](docs/AUTH_DESIGN.md)。
 
 ## 構成
 
@@ -86,7 +86,10 @@ shift-image-manager/
     ├── LogService.gs
     ├── Utils.gs
     └── appsscript.json
-tests/                       # ローカルテスト（GAS モック・ブラウザ E2E）。本番には配置されない
+tests/                       # ローカルテスト（GAS モック・ブラウザ E2E・通信模擬）。本番には配置されない
+tools/                       # テスト環境用ツール（clasp-test-push.sh / build-test-site.sh / cors-probe/）
+deploy/test/                 # テスト環境の設定テンプレート（実値は書かない）
+testdata/                    # 架空のテストデータ（画像）
 package.json                 # テスト用スクリプトのみ
 ```
 
@@ -490,3 +493,108 @@ E2E には playwright と `bootstrap@5.3.3` / `html2canvas@1.4.1` のローカ�
 | FORBIDDEN / ROLE | EDITOR が ADMIN 専用操作 | ADMIN に依頼 |
 | ACCESS_LIST_NOT_CONFIGURED / INVALID | シートなし・ヘッダー不正 | 「初期シート生成」・ヘッダー修正 |
 | 再読み込み後に毎回ログインが必要 | ブラウザが自動選択（FedCM / サードパーティ Cookie）を制限 | 仕様。ボタンからログイン |
+
+
+---
+
+# Phase 1.7: 実通信検証の準備・独立テスト環境
+
+**状態: 準備完了（コードレビュー・修正・テスト・ツール・手順）。外部リソースは未作成（承認待ち）。本番未変更。**
+
+## 1. プロジェクト概要
+
+店舗（KABUKI / AKIBA）×日付ごとのシフト編集データを、Google ログイン＋許可リストで保護して編集・保存する Web システム。Phase 1.7 では、実際の Google ログイン・GAS 通信を本番から独立したテスト環境で検証するための準備を行った。
+
+## 2. 本番とテスト環境の構成図
+
+[docs/TEST_ENVIRONMENT.md](docs/TEST_ENVIRONMENT.md) 1 章。本番とテストはスプレッドシート・GAS・Drive・OAuth クライアント・Web ページをすべて別にし、共有しない。取り違えはサーバー（`APP_ENV` と本番ID検査）とフロント（`APP_ENV` 一致確認）で停止する。
+
+## 3. 必要な Google サービス
+
+Google Cloud プロジェクト（OAuth のみ・無料）、Apps Script、スプレッドシート、Drive、HTTPS で公開できるテスト用ページ（TEST_ENVIRONMENT 2 章）。
+
+## 4. OAuth クライアント作成手順
+
+TEST_ENVIRONMENT 3-1（同意画面 → ウェブ アプリケーションのクライアントID。シークレットは使わない）。
+
+## 5. JavaScript 生成元の登録
+
+テスト用ページのオリジン（パスなし）。ローカル確認用に `http://localhost:8080` も可。本番の生成元とは別のクライアントに登録する。
+
+## 6. テスト用 GAS 作成手順
+
+TEST_ENVIRONMENT 3-3。**反映は `TEST_SCRIPT_ID=… tools/clasp-test-push.sh` のみ。リポジトリ直下の `clasp push` は本番に反映されるため使わない。**
+
+## 7. テスト用 Spreadsheet 作成手順
+
+新規作成（本番のコピーは使わない）→ `setupShiftImageManager` → ID管理にテスト用フォルダ → `setupTestFixtures`（TEST_ENVIRONMENT 3-2・3-3）。
+
+## 8. Script Properties のキー名
+
+| キー | 本番 | テスト |
+|---|---|---|
+| `APP_ENV` | 未設定（または `production`） | `test`（必須） |
+| `SPREADSHEET_ID` | 未設定 | テスト用スプレッドシートID（必須・本番ID不可） |
+| `AUTH_MODE` | `google_id_token` | `google_id_token` |
+| `GOOGLE_OAUTH_CLIENT_ID` | 本番用クライアントID | テスト用クライアントID |
+
+テンプレート: `deploy/test/script-properties.template.txt`
+
+## 9. 許可リスト初期設定
+
+テスターがログイン → 表示された利用者IDを管理者へ → メニュー「アクセス権限の追加」（`deploy/test/access-control.template.csv`）。空の間は全員拒否。
+
+## 10. ADMIN / EDITOR の設定
+
+ADMIN 1名・EDITOR 1名（＋任意で無効化確認用 1名）。未許可確認は登録しないアカウントで行う。
+
+## 11. テスト用デプロイ手順
+
+`authSelfTest` が全項目 ok を確認してから WebApp をデプロイ（実行ユーザー「自分」・アクセス「全員」）→ `TEST_GAS_WEB_APP_URL=… tools/build-test-site.sh` → `dist-test/` を公開。
+
+## 12. 実ブラウザでのテスト手順
+
+TEST_ENVIRONMENT 4 章（curl → `tools/cors-probe` → アプリ機能 16 項目）。記録は `deploy/test/real-env-test-record.template.md`。
+
+## 13. CORS トラブルシュート
+
+| 症状 | 確認 |
+|---|---|
+| 「通信に失敗しました（… CORS …）」 | curl で 302 応答と転送先の `Access-Control-Allow-Origin`。独自ヘッダー・`application/json` を送っていないか |
+| `GAS_HTML_RESPONSE` | WebApp URL の誤り、アクセスが「全員」でない、デプロイが古い・無効 |
+| DevTools に OPTIONS が出る | `Content-Type` が `text/plain` 以外、または独自ヘッダーがある |
+| 応答が `opaque` | `no-cors` を使っている（使わない） |
+
+## 14. 認証失敗時の確認方法
+
+1. エディタで `authSelfTest` → 失敗項目を確認（環境・BigInt・JWKS・認証設定・許可リスト）
+2. 画面のエラーコード（AUTH_* / FORBIDDEN の reason）と Phase 1.6 19 章の表
+3. 「画像操作ログ」シートの監査ログ（拒否理由・sub。トークンは記録されない）
+
+## 15. 署名検証のレビュー結果
+
+docs/AUTH_DESIGN.md 20 章。セルフレビューで重大1件（テスト環境から本番を参照し得る設定。修正済み）、中1件・低5件を修正。**第三者レビューは未実施（本番利用前に必要）。**
+
+## 16. 本番移行時の注意点
+
+- 本番採用条件（AUTH_DESIGN 22 章）をすべて満たしてから
+- 本番 GAS には `APP_ENV` / `SPREADSHEET_ID` を設定しない（設定すると停止する）
+- 本番とテストで OAuth クライアントIDを分ける
+- テスト用の許可リスト・データを本番へコピーしない
+- GAS とフロントを同時に反映（Phase 1.6 17 章）
+
+## 17. ロールバック手順
+
+Phase 1.6 18 章（デプロイの版を戻す・Pages を戻す・緊急時は `AUTH_MODE` 削除で全停止）。テスト環境は本番と共有するものがないため、本番のロールバックに影響しない。
+
+## 18. テスト環境の削除手順
+
+TEST_ENVIRONMENT 5 章（デプロイのアーカイブ → GAS・スプレッドシート・Drive 削除 → OAuth クライアント削除 → Cloud プロジェクトのシャットダウン → テスト用ページ削除）。
+
+## ローカルテスト
+
+```bash
+npm test                  # 単体・API・認証・セキュリティレビュー・環境分離
+npm run test:transport    # Chromium + GAS 模擬サーバーでの通信方式検証
+CDN_DIR=/path/to/node_modules npm run test:e2e   # Chromium E2E（GIS・GAS はモック）
+```

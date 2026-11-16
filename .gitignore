@@ -1,0 +1,4 @@
+# Phase 1.7: テスト用のローカル成果物（秘密情報・テスト環境のURLをコミットしない）
+dist-test/
+deploy/test/*.local.*
+node_modules/

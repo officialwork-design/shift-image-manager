@@ -20,6 +20,9 @@ const GOOGLE_ID_TOKEN = {
   JWKS_MAX_TTL_SEC: 21600,          // CacheService の上限（6時間）
   MAX_TOKEN_LENGTH: 4096,
   CLOCK_SKEW_SEC: 60,
+  MAX_LIFETIME_SEC: 7200,           // Google の ID トークンは1時間。exp - iat がこれを超えるものは拒否
+  MAX_JWKS_KEYS: 20,
+  FORBIDDEN_HEADER_PARAMS: ['jku', 'jwk', 'x5u', 'x5c', 'crit'],   // ヘッダー経由の鍵指定・拡張は受け付けない
   MIN_MODULUS_BITS: 2048,
   // DER: SEQUENCE { SEQUENCE { OID sha256, NULL }, OCTET STRING (32) }
   SHA256_DIGEST_INFO: [0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04, 0x20]
@@ -54,7 +57,9 @@ const GoogleIdTokenVerifier = {
     if (header.alg !== 'RS256') throw this.invalid_('署名方式が不正です');
     if (typeof header.kid !== 'string' || !header.kid) throw this.invalid_('鍵IDがありません');
     if (header.typ !== undefined && header.typ !== 'JWT') throw this.invalid_('トークン種別が不正です');
-    if (header.crit !== undefined) throw this.invalid_('未対応のヘッダーがあります');
+    if (GOOGLE_ID_TOKEN.FORBIDDEN_HEADER_PARAMS.some(k => Object.prototype.hasOwnProperty.call(header, k))) {
+      throw this.invalid_('未対応のヘッダーがあります');
+    }
 
     const key = this.getKey_(header.kid);
     const signature = this.base64UrlToBytes_(parts[2]);
@@ -75,7 +80,7 @@ const GoogleIdTokenVerifier = {
     }
     if (typeof p.iat !== 'number' || !isFinite(p.iat)) throw this.invalid_('発行時刻がありません');
     if (p.iat > now + GOOGLE_ID_TOKEN.CLOCK_SKEW_SEC) throw this.invalid_('発行時刻が不正です');
-    if (p.exp <= p.iat) throw this.invalid_('有効期限が不正です');
+    if (p.exp <= p.iat || p.exp - p.iat > GOOGLE_ID_TOKEN.MAX_LIFETIME_SEC) throw this.invalid_('有効期限が不正です');
     if (typeof p.sub !== 'string' || !/^[0-9]{1,255}$/.test(p.sub)) throw this.invalid_('利用者IDが不正です');
     if (typeof p.email !== 'string' || !p.email || p.email.length > 320) throw this.invalid_('メールアドレスがありません');
     if (p.email_verified !== true && p.email_verified !== 'true') {
@@ -101,9 +106,11 @@ const GoogleIdTokenVerifier = {
   },
 
   findKey_(jwks, kid) {
-    const keys = jwks && Array.isArray(jwks.keys) ? jwks.keys : [];
-    const jwk = keys.find(k => k && k.kid === kid);
-    if (!jwk) return null;
+    const keys = jwks && Array.isArray(jwks.keys) ? jwks.keys.slice(0, GOOGLE_ID_TOKEN.MAX_JWKS_KEYS) : [];
+    const matches = keys.filter(k => k && k.kid === kid);
+    if (matches.length !== 1) return null;   // 同じ kid が複数ある JWKS は使わない
+    const jwk = matches[0];
+    if (typeof jwk.n !== 'string' || !jwk.n) return null;
     if (jwk.kty !== 'RSA') return null;
     if (jwk.alg !== undefined && jwk.alg !== 'RS256') return null;
     if (jwk.use !== undefined && jwk.use !== 'sig') return null;
@@ -144,7 +151,7 @@ const GoogleIdTokenVerifier = {
     } catch (err) {
       throw Utils.apiError('AUTH_KEYS_UNAVAILABLE', 'Google の公開鍵の形式が不正です');
     }
-    if (!jwks || !Array.isArray(jwks.keys)) {
+    if (!jwks || !Array.isArray(jwks.keys) || !jwks.keys.length || jwks.keys.length > GOOGLE_ID_TOKEN.MAX_JWKS_KEYS) {
       throw Utils.apiError('AUTH_KEYS_UNAVAILABLE', 'Google の公開鍵の形式が不正です');
     }
     const ttl = this.cacheTtlFromHeaders_(response.getHeaders ? response.getHeaders() : {});
@@ -251,13 +258,15 @@ const GoogleIdTokenVerifier = {
     let buffer = 0;
     let bits = 0;
     for (let i = 0; i < text.length; i += 1) {
-      buffer = (buffer << 6) | alphabet.indexOf(text[i]);
+      buffer = ((buffer << 6) | alphabet.indexOf(text[i])) & 0xffff;
       bits += 6;
       if (bits >= 8) {
         bits -= 8;
         bytes.push((buffer >> bits) & 0xff);
       }
     }
+    // 非正規形（余りビットが 0 でない）を拒否：同じバイト列に複数の表記を許さない
+    if (bits > 0 && (buffer & ((1 << bits) - 1)) !== 0) throw this.invalid_('トークンの形式が不正です');
     return bytes;
   },
 
@@ -276,7 +285,39 @@ const GoogleIdTokenVerifier = {
       throw this.invalid_('トークンの形式が不正です');
     }
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw this.invalid_('トークンの形式が不正です');
+    this.assertNoDuplicateKeys_(text);
     return value;
+  },
+
+  // JSON.parse は重複キーを後勝ちで受け入れるため、同じキー（エスケープ表記違いを含む）が2回出たら拒否する
+  // （JSON として正しいことは JSON.parse で確認済みの文字列だけを渡すこと）
+  assertNoDuplicateKeys_(text) {
+    const stack = [];
+    let i = 0;
+    while (i < text.length) {
+      const ch = text[i];
+      if (ch === '"') {
+        let j = i + 1;
+        while (j < text.length && text[j] !== '"') j += text[j] === '\\' ? 2 : 1;
+        const top = stack[stack.length - 1];
+        if (top && top.object && top.expectKey) {
+          const key = JSON.parse(text.slice(i, j + 1));
+          if (Object.prototype.hasOwnProperty.call(top.keys, key)) throw this.invalid_('トークンに重複した項目があります');
+          top.keys[key] = true;
+          top.expectKey = false;
+        }
+        i = j + 1;
+        continue;
+      }
+      if (ch === '{') stack.push({ object: true, keys: {}, expectKey: true });
+      else if (ch === '[') stack.push({ object: false });
+      else if (ch === '}' || ch === ']') stack.pop();
+      else if (ch === ',') {
+        const top = stack[stack.length - 1];
+        if (top && top.object) top.expectKey = true;
+      }
+      i += 1;
+    }
   },
 
   invalid_(message) {

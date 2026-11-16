@@ -127,6 +127,12 @@ async function startAuth() {
   setAuthView('loading');
   try {
     const config = await Api.publicCall('getPublicConfig');
+    const expectedEnv = (window.APP_CONFIG && window.APP_CONFIG.APP_ENV) || 'production';
+    if ((config.environment || 'production') !== expectedEnv) {
+      setAuthView('blocked', `接続先の環境が一致しません（画面: ${expectedEnv} / サーバー: ${config.environment || '不明'}）。config.js の GAS_WEB_APP_URL を確認してください。`);
+      return;
+    }
+    document.getElementById('envBadge').classList.toggle('d-none', config.environment !== 'test');
     if (!config.authConfigured || !config.googleClientId) {
       setAuthView('notConfigured', 'ログイン機能が設定されていません。管理者に連絡してください。');
       return;
@@ -135,7 +141,8 @@ async function startAuth() {
     if (!Auth.hasToken() && state.authView === 'loading') setAuthView('signedOut');
     setStatus('準備完了', 'success');
   } catch (err) {
-    setAuthView('error', err.message || 'ログイン機能を読み込めませんでした。');
+    // サーバー設定の安全装置（本番ID混入・環境の取り違え）で停止している場合はログインさせない
+    setAuthView(String(err.code || '').indexOf('CONFIG_') === 0 ? 'blocked' : 'error', err.message || 'ログイン機能を読み込めませんでした。');
     setStatus('エラー', 'danger');
   }
 }
@@ -191,7 +198,7 @@ function handleAuthFailure(err) {
 }
 
 // 認証状態に応じて画面を切り替える
-// loading / signedOut / verifying / signedIn / expired / forbidden / notConfigured / error
+// loading / signedOut / verifying / signedIn / expired / forbidden / notConfigured / error / blocked
 function setAuthView(view, message, details) {
   state.authView = view;
   const showApp = view === 'signedIn' || view === 'expired';
@@ -205,7 +212,8 @@ function setAuthView(view, message, details) {
     verifying: 'ログイン情報を確認中…',
     forbidden: 'このアカウントには利用権限がありません',
     notConfigured: 'ログイン機能が利用できません',
-    error: 'ログイン機能が利用できません'
+    error: 'ログイン機能が利用できません',
+    blocked: '安全のため停止しています'
   };
   if (!showApp) {
     document.getElementById('authTitle').textContent = titles[view] || '';

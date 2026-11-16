@@ -1,0 +1,4 @@
+googleSub,email,role,enabled,createdAt,updatedAt,note
+<ADMIN 担当者の利用者ID（画面に表示される数字）>,<ADMIN 担当者のメール>,ADMIN,TRUE,,,テスト用 ADMIN（承認後に登録）
+<EDITOR 担当者の利用者ID>,<EDITOR 担当者のメール>,EDITOR,TRUE,,,テスト用 EDITOR（承認後に登録）
+<無効化確認用の利用者ID>,<メール>,EDITOR,FALSE,,,無効ユーザーの拒否確認用（任意）

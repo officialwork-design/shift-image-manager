@@ -1,0 +1,5 @@
+# テスト用 Apps Script の Script Properties（キー = 値）。実値はこのファイルに書かず、Apps Script の「プロジェクトの設定」で入力する。
+APP_ENV = test
+SPREADSHEET_ID = <テスト用スプレッドシートのID（本番IDは不可）>
+AUTH_MODE = google_id_token
+GOOGLE_OAUTH_CLIENT_ID = <テスト用 OAuth クライアントID（xxxxx.apps.googleusercontent.com）>

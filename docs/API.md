@@ -39,7 +39,7 @@
 
 | action | 必要なロール | 状態 | 概要 |
 |---|---|---|---|
-| getPublicConfig | 公開 | **新規** | ログイン前に必要な公開設定（`authConfigured`, `googleClientId`, 店舗, 時間候補） |
+| getPublicConfig | 公開 | **新規** | ログイン前に必要な公開設定（`environment`, `authConfigured`, `googleClientId`, 店舗, 時間候補） |
 | getConfig | 公開 | 変更 | `getPublicConfig` と同じ（Spreadsheet ID・フォルダID は返さない） |
 | whoAmI | ADMIN / EDITOR | **新規** | 検証済みの `{ sub, email, role }` |
 | getDateList | ADMIN / EDITOR | 認証必須化 | SIFT_DATA の `M月D日(曜)` 一覧（年なし） |
@@ -128,6 +128,21 @@
 | CONFIRMATION_REQUIRED | 初期化の確認不一致 | – |
 | WRITE_VERIFY_FAILED / DATA_INCONSISTENT | 書き込み検証失敗／保存データ不整合 | エラー表示（README のトラブルシュート参照） |
 | SETUP_REQUIRED / SCHEMA_MISMATCH | シート未作成／列構成不一致 | 管理者対応 |
+| CONFIG_ENV_REQUIRED / CONFIG_ENV_MISMATCH / CONFIG_PRODUCTION_ID_IN_TEST / CONFIG_INVALID / CONFIG_UNAVAILABLE | 環境ガード（Phase 1.7）。全 API を停止 | 「安全のため停止しています」 |
+
+## 7-2. 通信失敗時の扱い（フロント `assets/js/api.js`、Phase 1.7）
+
+成功・失敗の判定は **応答 JSON の `success`（真偽値）だけ** で行う。読めない応答は成功扱いにしない。
+
+| code | 状況 | 画面 |
+|---|---|---|
+| `NETWORK` | 通信できない、または CORS で応答を読めない（ブラウザは区別できない） | 「通信に失敗しました」。入力は保持 |
+| `TIMEOUT` | 既定60秒（`APP_CONFIG.API_TIMEOUT_MS`）で中断 | 保存操作は「保存されたか確認」を案内 |
+| `GAS_HTML_RESPONSE` | GAS が HTML（エラーページ・ログイン画面）を返した | WebApp URL・公開設定の確認を案内 |
+| `INVALID_RESPONSE` | 不透明レスポンス（no-cors）、JSON でない、`success` が真偽値でない、HTTP 異常 | 失敗として表示 |
+| `CONFIG_*` | サーバーの環境ガードで停止（本番ID混入・環境の取り違え・設定不足） | 「安全のため停止しています」 |
+
+公開設定の `environment`（`production` / `test`）と `config.js` の `APP_ENV` が一致しない場合、フロントは停止する。
 
 ## 8. 互換性・移行計画
 
