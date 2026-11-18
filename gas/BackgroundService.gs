@@ -350,7 +350,7 @@ const BackgroundService = {
     if (!isTest || opts.readOnly) {
       throw Utils.apiError('BACKGROUND_FOLDER_NOT_CONFIGURED', '背景画像の保存先（DRIVE_BACKGROUND_FOLDER_ID）が設定されていません');
     }
-    const createdId = BackgroundDrive.createFolder(BACKGROUND_LIMITS.TEST_FOLDER_NAME);
+    const createdId = BackgroundDrive.newFolder(BACKGROUND_LIMITS.TEST_FOLDER_NAME);
     props.setProperty('DRIVE_BACKGROUND_FOLDER_ID', createdId);
     return DriveApp.getFolderById(createdId);
   }
@@ -384,8 +384,13 @@ const BackgroundImageInfo = {
 };
 
 // Drive REST API（drive.file スコープ）での書き込み。アプリが作成したフォルダ・ファイルにだけ書き込める。
+//   - フォルダ作成: POST https://www.googleapis.com/drive/v3/files（mimeType = application/vnd.google-apps.folder）
+//   - アップロード: POST https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart（メタデータ + 画像、parents = 背景フォルダ）
+//   - 認証: ScriptApp.getOAuthToken()（appsscript.json の oauthScopes で承認された範囲のトークン）
+//   - 通信: UrlFetchApp（script.external_request スコープ）
+// 読み取りは DriveApp（drive.readonly）と Drive API files.get（drive.readonly / drive.file）。
 const BackgroundDrive = {
-  createFolder(name) {
+  newFolder(name) {
     const res = UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files?fields=id&supportsAllDrives=true', {
       method: 'post', contentType: 'application/json', muteHttpExceptions: true,
       headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
@@ -400,11 +405,13 @@ const BackgroundDrive = {
     const head = '--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + meta +
       '\r\n--' + boundary + '\r\nContent-Type: ' + mimeType + '\r\n\r\n';
     const tail = '\r\n--' + boundary + '--';
-    const payload = [].concat(Utilities.newBlob(head).getBytes(), Array.prototype.slice.call(bytes), Utilities.newBlob(tail).getBytes());
-    const res = UrlFetchApp.fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id&supportsAllDrives=true', {
-      method: 'post', contentType: 'multipart/related; boundary=' + boundary, muteHttpExceptions: true,
+    const contentType = 'multipart/related; boundary=' + boundary;
+    // 本文はバイナリ（Blob）で送る（文字列にすると画像のバイト列が文字コード変換で壊れる）
+    const body = Utilities.newBlob([].concat(Utilities.newBlob(head).getBytes(), Array.prototype.slice.call(bytes), Utilities.newBlob(tail).getBytes()), contentType);
+    const res = UrlFetchApp.fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,parents&supportsAllDrives=true', {
+      method: 'post', contentType, muteHttpExceptions: true,
       headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
-      payload
+      payload: body
     });
     return this.idFrom_(res, '背景画像を保存できません');
   },
@@ -419,3 +426,53 @@ const BackgroundDrive = {
     return String(body.id);
   }
 };
+
+// ===== 背景機能の自己診断（読み取りのみ。エディタから実行し、実行ログで確認する） =====
+// 必要スコープがトークンに含まれているか・背景フォルダ・背景設定シートの状態を確認する。Drive やシートには書き込まない。
+const BACKGROUND_REQUIRED_SCOPES = [
+  'https://www.googleapis.com/auth/drive.file',
+  'https://www.googleapis.com/auth/drive.readonly',
+  'https://www.googleapis.com/auth/script.external_request',
+  'https://www.googleapis.com/auth/spreadsheets'
+];
+function backgroundSelfTest() {
+  const checks = [];
+  const add = (name, fn) => {
+    try { checks.push({ name, ok: true, detail: String(fn() || 'OK') }); }
+    catch (err) { checks.push({ name, ok: false, detail: (err && err.code ? '[' + err.code + '] ' : '') + Utils.errorMessage(err) }); }
+  };
+  add('環境', () => ConfigService.getEnvironment().env);
+  add('OAuth スコープ（トークン）', () => {
+    const res = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?access_token=' + encodeURIComponent(ScriptApp.getOAuthToken()), { muteHttpExceptions: true });
+    if (res.getResponseCode() !== 200) throw new Error('tokeninfo HTTP ' + res.getResponseCode());
+    const granted = String(JSON.parse(res.getContentText()).scope || '').split(/\s+/);
+    const missing = BACKGROUND_REQUIRED_SCOPES.filter(sc => granted.indexOf(sc) === -1);
+    if (missing.length) throw new Error('未承認のスコープ: ' + missing.join(', ') + '（エディタから関数を実行して再承認してください）');
+    return '必要なスコープ ' + BACKGROUND_REQUIRED_SCOPES.length + ' 件を確認';
+  });
+  add('背景フォルダ', () => {
+    const config = ConfigService.getConfig();
+    const id = String(config.DRIVE_BACKGROUND_FOLDER_ID || PropertiesService.getScriptProperties().getProperty('DRIVE_BACKGROUND_FOLDER_ID') || '').trim();
+    if (!id) return ConfigService.isTestEnvironment() ? '未設定（テスト環境では最初の背景保存時に自動作成）' : '未設定（本番は設定が必要）';
+    if (PRODUCTION_RESOURCE_IDS.indexOf(id) !== -1) throw Utils.apiError('CONFIG_PRODUCTION_ID_IN_TEST', '本番の画像フォルダ等が指定されています');
+    const res = UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(id) +
+      '?fields=id,name,mimeType,capabilities(canAddChildren),trashed&supportsAllDrives=true',
+      { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
+    if (res.getResponseCode() !== 200) throw new Error('フォルダを参照できません（HTTP ' + res.getResponseCode() + '）');
+    const f = JSON.parse(res.getContentText());
+    if (f.mimeType !== 'application/vnd.google-apps.folder') throw new Error('フォルダではありません');
+    if (f.trashed) throw new Error('ゴミ箱にあります');
+    if (!(f.capabilities && f.capabilities.canAddChildren)) throw new Error('このフォルダに書き込めません（drive.file ではアプリが作成したフォルダのみ書き込み可）');
+    return 'OK（書き込み可）';
+  });
+  add('背景設定シート', () => {
+    const config = ConfigService.getConfig();
+    const sheet = SpreadsheetService.getSpreadsheet().getSheetByName(config.SHEET_BACKGROUND || DEFAULT_CONFIG.SHEET_BACKGROUND);
+    if (!sheet) return '未作成（初期シート生成または最初の背景保存で作成）';
+    SpreadsheetService.assertHeaders_(sheet, sheet.getName(), BACKGROUND_HEADERS);
+    return '登録 ' + Math.max(0, sheet.getLastRow() - 1) + ' 店舗';
+  });
+  const result = { ok: checks.every(c => c.ok), checks };
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}

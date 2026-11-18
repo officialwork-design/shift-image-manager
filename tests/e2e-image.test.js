@@ -202,7 +202,7 @@ test('E2E 画像生成: 背景アップロード・店舗別・自動配置・PN
         assert.equal(r.valid, true, 'n=' + r.n);
         assert.equal(r.namesFit, true, '名前を省略しない n=' + r.n);
       });
-      assert.deepEqual(results.map(r => r.rows.length), [0, 1, 1, 1, 2, 2, 2, 3, 4, 4]);
+      assert.deepEqual(results.map(r => r.rows.length), [0, 1, 1, 1, 2, 2, 3, 3, 4, 4]);
     });
 
     await t.test('長すぎる名前は重ねて描かずエラー表示（PNG 保存不可）', async () => {

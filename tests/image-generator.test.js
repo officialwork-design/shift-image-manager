@@ -18,8 +18,8 @@ test('画像サイズ: すべての人数で 1447 × 2048 px（人数で変わ�
   }
 });
 
-test('段数: 初期配置ルールどおり（0:背景のみ / 1〜3:1段 / 4〜10:2段 / 11〜13:3段 / 14〜:3段以上）', () => {
-  const expected = { 0: 0, 1: 1, 2: 1, 3: 1, 4: 2, 5: 2, 6: 2, 7: 2, 8: 2, 9: 2, 10: 2, 11: 3, 12: 3, 13: 3 };
+test('段数: 配置ルールどおり（0:背景のみ / 1〜3:1段 / 4〜8:2段 / 9〜13:3段 / 14〜:3段以上）', () => {
+  const expected = { 0: 0, 1: 1, 2: 1, 3: 1, 4: 2, 5: 2, 6: 2, 7: 2, 8: 2, 9: 3, 10: 3, 11: 3, 12: 3, 13: 3 };
   Object.keys(expected).forEach(n => assert.equal(G.computeLayout(Number(n)).rows.length, expected[n], 'n=' + n));
   for (let n = 14; n <= 40; n++) assert.ok(G.computeLayout(n).rows.length >= 3, 'n=' + n);
   assert.deepEqual(G.computeLayout(0).cells, []);
@@ -28,7 +28,8 @@ test('段数: 初期配置ルールどおり（0:背景のみ / 1〜3:1段 / 4�
 test('段ごとの人数: 上の段から多めに・合計は人数と一致', () => {
   assert.deepEqual(G.computeLayout(5).rows, [3, 2]);
   assert.deepEqual(G.computeLayout(7).rows, [4, 3]);
-  assert.deepEqual(G.computeLayout(10).rows, [5, 5]);
+  assert.deepEqual(G.computeLayout(9).rows, [3, 3, 3]);
+  assert.deepEqual(G.computeLayout(10).rows, [4, 3, 3]);
   assert.deepEqual(G.computeLayout(11).rows, [4, 4, 3]);
   assert.deepEqual(G.computeLayout(13).rows, [5, 4, 4]);
   for (let n = 1; n <= 40; n++) {
@@ -70,6 +71,14 @@ test('配置: 並び順を保持（左上から右へ、上の段から順）・
         assert.ok(c.row > p.row || (c.row === p.row && c.photo.x > p.photo.x), 'order n=' + n);
       }
     });
+  }
+});
+
+test('9〜10人: 3段のほうが 2段（5/4・5/5）より写真が大きい（視認性優先）', () => {
+  for (const n of [9, 10]) {
+    const three = G.computeLayout(n).photoW;
+    const two = G.maxPhotoWidthFor(G.distribute(n, 2), G.normalizeArea());
+    assert.ok(three > two, `n=${n} 3段=${three} 2段=${two}`);
   }
 });
 

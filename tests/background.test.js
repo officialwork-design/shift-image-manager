@@ -207,3 +207,57 @@ test('画像情報: PNG / JPEG の実寸を読む（GAS の符号付き byte）'
   assert.deepEqual(parse(jpeg(1080, 1920)), { mimeType: 'image/jpeg', width: 1080, height: 1920 });
   assert.equal(h.gas.BackgroundImageInfo.parse(signed(Buffer.from('hello world, not an image'))), null);
 });
+
+// ===== Drive API / drive.file 権限の再確認（Phase 1.8 反映前） =====
+const fs = require('fs');
+const path = require('path');
+const GAS_DIR = path.join(__dirname, '..', 'gas');
+const ALL_SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.readonly',
+  'https://www.googleapis.com/auth/drive.file', 'https://www.googleapis.com/auth/script.container.ui', 'https://www.googleapis.com/auth/script.external_request'];
+
+test('権限: appsscript.json は drive.file を追加し、ドライブ全体の書き込み権限（drive）は要求しない', () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(GAS_DIR, 'appsscript.json'), 'utf8'));
+  assert.deepEqual(manifest.oauthScopes.slice().sort(), ALL_SCOPES.slice().sort());
+  assert.ok(!manifest.oauthScopes.includes('https://www.googleapis.com/auth/drive'));
+  assert.deepEqual(manifest.webapp, { access: 'ANYONE_ANONYMOUS', executeAs: 'USER_DEPLOYING' });
+});
+
+test('権限: GAS コードは DriveApp の書き込み系（drive スコープが必要）を使わない', () => {
+  const src = fs.readdirSync(GAS_DIR).filter(f => f.endsWith('.gs')).map(f => fs.readFileSync(path.join(GAS_DIR, f), 'utf8')).join('\n')
+    .replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  const forbidden = /DriveApp\.(createFile|createFolder|addFile|removeFile|createShortcut)|\.(createFile|createFolder|setTrashed|setSharing|addEditor|addViewer|moveTo|setContent)\(/;
+  assert.equal(forbidden.test(src), false, src.match(forbidden) && src.match(forbidden)[0]);
+  const driveAppCalls = (src.match(/DriveApp\.\w+/g) || []).filter((v, i, a) => a.indexOf(v) === i).sort();
+  assert.deepEqual(driveAppCalls, ['DriveApp.getFileById', 'DriveApp.getFolderById'], '読み取りのみ');
+});
+
+test('Drive API: 書き込みは Bearer トークン付きの REST・multipart 本文は Blob・画像はそのまま保存', () => {
+  const h = testEnv();
+  const bytes = Buffer.concat([png(1447, 2048), Buffer.from([0x00, 0x80, 0xff, 0x7f, 0x0d, 0x0a])]);   // 符号・改行コードを含む
+  const res = save(h, { store: 'AKIBA', expectedRevision: 0, image: { dataBase64: b64(bytes), mimeType: 'image/png' } });
+  assert.equal(res.success, true, JSON.stringify(res));
+  const folderWrite = h.fakeDrive.writes.find(w => w.type === 'folder');
+  assert.equal(folderWrite.auth, 'Bearer FAKE_OAUTH_TOKEN');
+  const file = h.fakeDrive.files[h.ss.getSheetByName('背景設定').get(2, 2)];
+  assert.equal(Buffer.compare(file.bytes, bytes), 0, 'バイト列が変化しない');
+  assert.equal(file.mimeType, 'image/png');
+  assert.match(file.name, /^AKIBA_background_\d{8}_\d{6}\.png$/);
+  assert.ok(h.fetchLog.every(u => !/drive\.google\.com|\/drive\/v2\//.test(u)));
+});
+
+test('自己診断 backgroundSelfTest: スコープ不足・書き込めないフォルダを検出（書き込みはしない）', () => {
+  const h = testEnv();
+  h.fakeDrive.grantedScopes = ALL_SCOPES.filter(s => !s.endsWith('drive.file'));
+  let r = JSON.parse(JSON.stringify(h.gas.backgroundSelfTest()));
+  assert.equal(r.ok, false);
+  assert.match(r.checks.find(c => c.name.startsWith('OAuth')).detail, /drive\.file/);
+  h.fakeDrive.grantedScopes = ALL_SCOPES;
+  r = JSON.parse(JSON.stringify(h.gas.backgroundSelfTest()));
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.match(r.checks.find(c => c.name === '背景フォルダ').detail, /未設定/);
+  h.fakeDrive.folders.NOT_MINE = { name: 'someone else', canAddChildren: false };
+  h.props.DRIVE_BACKGROUND_FOLDER_ID = 'NOT_MINE';
+  r = JSON.parse(JSON.stringify(h.gas.backgroundSelfTest()));
+  assert.match(r.checks.find(c => c.name === '背景フォルダ').detail, /書き込めません/);
+  assert.equal(h.fakeDrive.writes.length, 0, '自己診断は書き込まない');
+});

@@ -89,7 +89,8 @@ function createGasContext(opts) {
   if (!fakeDrive.writes) fakeDrive.writes = [];
   function fakeDriveFetch(url, params) {
     const p = params || {};
-    if (url.indexOf('https://www.googleapis.com/') !== 0 && url.indexOf('https://lh3.googleusercontent.com/') !== 0) return null;
+    if (url.indexOf('https://www.googleapis.com/') !== 0 && url.indexOf('https://lh3.googleusercontent.com/') !== 0 &&
+        url.indexOf('https://oauth2.googleapis.com/tokeninfo') !== 0) return null;
     if (fakeDrive.failWrites && (p.method || '').toLowerCase() === 'post') return { status: 403, body: '{"error":{"message":"forbidden"}}' };
     if (/^https:\/\/www\.googleapis\.com\/drive\/v3\/files\?/.test(url) && (p.method || '').toLowerCase() === 'post') {
       const meta = JSON.parse(p.payload);
@@ -98,8 +99,12 @@ function createGasContext(opts) {
       fakeDrive.writes.push({ type: 'folder', id, name: meta.name, auth: (p.headers || {}).Authorization });
       return { status: 200, body: JSON.stringify({ id }) };
     }
+    if (url.indexOf('https://oauth2.googleapis.com/tokeninfo') === 0) {
+      return { status: 200, body: JSON.stringify({ scope: (fakeDrive.grantedScopes || []).join(' ') }) };
+    }
     if (/\/upload\/drive\/v3\/files\?uploadType=multipart/.test(url)) {
-      const buf = Buffer.from(p.payload.map(b => b & 0xff));
+      if (!p.payload || !p.payload.__isBlob) return { status: 400, body: '{"error":"payload must be a Blob"}' };
+      const buf = Buffer.from(p.payload.getBytes().map(b => b & 0xff));
       const boundary = /boundary=(.+)$/.exec(p.contentType)[1];
       const text = buf.toString('latin1');
       const parts = text.split('--' + boundary);
@@ -113,6 +118,11 @@ function createGasContext(opts) {
       return { status: 200, body: JSON.stringify({ id }) };
     }
     const metaMatch = /\/drive\/v3\/files\/([^?]+)\?fields=/.exec(url);
+    if (metaMatch && fakeDrive.folders[decodeURIComponent(metaMatch[1])]) {
+      const fid = decodeURIComponent(metaMatch[1]);
+      return { status: 200, body: JSON.stringify({ id: fid, name: fakeDrive.folders[fid].name, mimeType: 'application/vnd.google-apps.folder', trashed: false,
+        capabilities: { canAddChildren: fakeDrive.folders[fid].canAddChildren !== false } }) };
+    }
     if (metaMatch) {
       const id = decodeURIComponent(metaMatch[1]);
       const f = fakeDrive.photos && fakeDrive.photos[id];
@@ -174,7 +184,7 @@ function createGasContext(opts) {
       getUuid: () => 'uuid-' + (++uuidSeq),
       newBlob: (s, mime, name) => {
         const buf = Array.isArray(s) || Buffer.isBuffer(s) ? Buffer.from(s.map ? s.map(b => b & 0xff) : s) : Buffer.from(String(s), 'utf8');
-        return { getBytes: () => Array.from(buf).map(b => (b > 127 ? b - 256 : b)), getContentType: () => mime || '', getName: () => name || '' };
+        return { __isBlob: true, getBytes: () => Array.from(buf).map(b => (b > 127 ? b - 256 : b)), getContentType: () => mime || '', getName: () => name || '' };
       },
       base64Decode: b64 => Array.from(Buffer.from(String(b64), 'base64')).map(b => (b > 127 ? b - 256 : b)),
       DigestAlgorithm: { SHA_256: 'SHA_256' },
@@ -245,7 +255,7 @@ function createGasContext(opts) {
   const gasDir = path.join(__dirname, '..', 'gas');
   const files = fs.readdirSync(gasDir).filter(f => f.endsWith('.gs')).sort();
   const source = files.map(f => fs.readFileSync(path.join(gasDir, f), 'utf8')).join('\n;\n') +
-    '\n;this.__gas = { ShiftService, ShiftRepository, SiftService, ImageService, AuthService, ApiRouter, MigrationService, ConfigService, LogService, SpreadsheetService, Utils, BackgroundService, BackgroundImageInfo, BACKGROUND_HEADERS, doGet, doPost, SHIFT_EDIT_HEADERS, SHIFT_MANAGE_HEADERS, SHIFT_STORAGE, setupShiftImageManager, GoogleIdTokenVerifier, AccessControlService, GOOGLE_ID_TOKEN, authSelfTest, setupTestFixtures, TestFixtures, API_PROTECTED_ACTIONS, API_PUBLIC_ACTIONS, API_REMOVED_ACTIONS };';
+    '\n;this.__gas = { ShiftService, ShiftRepository, SiftService, ImageService, AuthService, ApiRouter, MigrationService, ConfigService, LogService, SpreadsheetService, Utils, BackgroundService, BackgroundImageInfo, BACKGROUND_HEADERS, backgroundSelfTest, doGet, doPost, SHIFT_EDIT_HEADERS, SHIFT_MANAGE_HEADERS, SHIFT_STORAGE, setupShiftImageManager, GoogleIdTokenVerifier, AccessControlService, GOOGLE_ID_TOKEN, authSelfTest, setupTestFixtures, TestFixtures, API_PROTECTED_ACTIONS, API_PUBLIC_ACTIONS, API_REMOVED_ACTIONS };';
   vm.createContext(context);
   vm.runInContext(source, context, { filename: 'gas-bundle.js' });
   return { gas: context.__gas, ss, cacheStore, props, lockState, context, fetchLog, openLog, fakeDrive };
