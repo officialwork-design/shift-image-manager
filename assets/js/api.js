@@ -111,6 +111,18 @@ const Api = (() => {
     castPhotos: (store, date) => call('getCastPhotos', { store, date }, { timeoutMs: 180000 })
   };
 
+  // 手動モード（キャスト名の手入力。SIFT_DATA は使わない）
+  const manual = {
+    get: (store, date) => call('getManualShift', { store, date }),
+    // rows: [{ castName, castId }]（配列の順番が並び順）
+    save: (store, date, expectedRevision, rows) => call('saveManualShift', { store, date, expectedRevision, rows }, { requestId: newRequestId() }),
+    lookup: names => call('lookupCasts', { names }),
+    photos: fileIds => call('getManualPhotos', { fileIds }, { timeoutMs: 180000 }),
+    // image: { dataBase64, mimeType, fileName }。castId ありは差し替え（expectedRevision 必須）
+    registerPhoto: (castName, image, options) => call('registerCastPhoto', Object.assign({ castName, image }, options || {}),
+      { requestId: newRequestId(), timeoutMs: 180000 })
+  };
+
   // Phase 1.5 互換の名前（すべて認証付き POST）
-  return { call, publicCall, write: call, read: call, setTokenProvider, newRequestId, parseResponse, background };
+  return { call, publicCall, write: call, read: call, setTokenProvider, newRequestId, parseResponse, background, manual };
 })();

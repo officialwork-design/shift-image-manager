@@ -126,6 +126,8 @@ function createGasContext(opts) {
     if (metaMatch) {
       const id = decodeURIComponent(metaMatch[1]);
       const f = fakeDrive.photos && fakeDrive.photos[id];
+      // アプリがアップロードした直後のファイル: サムネイル未作成（thumbnailLink なし）→ 本体の取得にフォールバック
+      if (!f && fakeDrive.files[id]) return { status: 200, body: JSON.stringify({ mimeType: fakeDrive.files[id].mimeType, size: String(fakeDrive.files[id].bytes.length) }) };
       if (!f) return { status: 404, body: '{}' };
       return { status: 200, body: JSON.stringify({ thumbnailLink: 'https://lh3.googleusercontent.com/thumb/' + id + '=s220', mimeType: f.mimeType, size: String(f.bytes.length) }) };
     }
@@ -255,7 +257,7 @@ function createGasContext(opts) {
   const gasDir = path.join(__dirname, '..', 'gas');
   const files = fs.readdirSync(gasDir).filter(f => f.endsWith('.gs')).sort();
   const source = files.map(f => fs.readFileSync(path.join(gasDir, f), 'utf8')).join('\n;\n') +
-    '\n;this.__gas = { ShiftService, ShiftRepository, SiftService, ImageService, AuthService, ApiRouter, MigrationService, ConfigService, LogService, SpreadsheetService, Utils, BackgroundService, BackgroundImageInfo, BACKGROUND_HEADERS, backgroundSelfTest, doGet, doPost, SHIFT_EDIT_HEADERS, SHIFT_MANAGE_HEADERS, SHIFT_STORAGE, setupShiftImageManager, GoogleIdTokenVerifier, AccessControlService, GOOGLE_ID_TOKEN, authSelfTest, setupTestFixtures, TestFixtures, API_PROTECTED_ACTIONS, API_PUBLIC_ACTIONS, API_REMOVED_ACTIONS };';
+    '\n;this.__gas = { ShiftService, ShiftRepository, SiftService, ImageService, AuthService, ApiRouter, MigrationService, ConfigService, LogService, SpreadsheetService, Utils, BackgroundService, BackgroundImageInfo, ManualShiftService, MANUAL_SHIFT_HEADERS, CAST_REGISTRY_HEADERS, BACKGROUND_HEADERS, backgroundSelfTest, doGet, doPost, SHIFT_EDIT_HEADERS, SHIFT_MANAGE_HEADERS, SHIFT_STORAGE, setupShiftImageManager, GoogleIdTokenVerifier, AccessControlService, GOOGLE_ID_TOKEN, authSelfTest, setupTestFixtures, TestFixtures, API_PROTECTED_ACTIONS, API_PUBLIC_ACTIONS, API_REMOVED_ACTIONS };';
   vm.createContext(context);
   vm.runInContext(source, context, { filename: 'gas-bundle.js' });
   return { gas: context.__gas, ss, cacheStore, props, lockState, context, fetchLog, openLog, fakeDrive };

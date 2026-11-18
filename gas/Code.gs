@@ -50,7 +50,12 @@ const DEFAULT_CONFIG = {
   SHEET_ACCESS_CONTROL: 'アクセス権限',
   SHEET_BACKGROUND: '背景設定',
   // 背景画像の保存先（店舗別背景）。本番は明示設定が必要。テスト環境で未設定ならテスト用フォルダを自動作成する
-  DRIVE_BACKGROUND_FOLDER_ID: ''
+  DRIVE_BACKGROUND_FOLDER_ID: '',
+  // 手動モード（キャスト名の手入力）。SIFT_DATA・シフト編集とは別のシートに保存する
+  SHEET_MANUAL_SHIFT: '手動シフト',
+  SHEET_CAST_REGISTRY: 'キャスト画像',
+  // 手動モードで登録するキャスト写真の保存先。本番は明示設定が必要。テスト環境で未設定ならテスト用フォルダを自動作成する
+  DRIVE_CAST_PHOTO_FOLDER_ID: ''
 };
 
 // 店舗×日付別 編集データ保存の設定（Phase 1.5）

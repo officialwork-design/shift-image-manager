@@ -177,7 +177,8 @@ async function verifySignIn() {
     state.identity = me;
     setAuthView('signedIn');
     if (resumeAfterExpiry) showAlert('再ログインしました。入力中の内容はそのまま残っています。必要に応じて保存してください。', 'success');
-    if (!state.datesLoaded) await loadDateList();
+    if (manualModeActive()) ManualMode.onSignedIn();      // 手動モード: SIFT_DATA の日付・シフトは取得しない
+    else if (!state.datesLoaded) await loadDateList();
   } catch (err) {
     handleAuthFailure(err);
   }
@@ -268,8 +269,14 @@ function applyRoleUi() {
   if (typeof updateBackgroundButtons === 'function') updateBackgroundButtons();
 }
 
+// 手動モード（manual-mode.js）が有効か。読み込まれていない場合は自動モードとして動く
+function manualModeActive() {
+  return typeof ManualMode !== 'undefined' && !!ManualMode && ManualMode.isManual();
+}
+
 function logout() {
-  if (isDirty() && !window.confirm('未保存の変更があります。ログアウトすると失われます。ログアウトしますか？')) return;
+  const manualDirty = typeof ManualMode !== 'undefined' && !!ManualMode && ManualMode.isDirty();
+  if ((isDirty() || manualDirty) && !window.confirm('未保存の変更があります。ログアウトすると失われます。ログアウトしますか？')) return;
   state.savedSignature = null;   // 確認済みのため以降の警告を出さない
   Auth.signOut();
 }
@@ -294,6 +301,7 @@ function clearShiftData() {
   document.getElementById('alertArea').innerHTML = '';
   document.getElementById('datePicker').innerHTML = '<option value="">ログイン後に表示</option>';
   resetBackgroundUi();
+  if (typeof ManualMode !== 'undefined' && ManualMode) ManualMode.reset();
   updateSaveState();
 }
 
@@ -1666,6 +1674,7 @@ function clearGeneratedImage() {
 }
 
 async function generateShiftImage() {
+  if (manualModeActive()) { ManualMode.openConfirm(); return; }   // 手動モード: 入力内容を確認してから生成
   const selection = Object.assign({}, state.selection);
   if (!selection.store || !selection.date || !state.current) { showAlert('店舗と日付を選択してください。', 'warning'); return; }
   if (isDirty()) { showAlert('未保存の変更があります。「編集保存」してから画像を生成してください（画像は保存済みのシフトから作ります）。', 'warning'); return; }

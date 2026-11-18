@@ -21,7 +21,7 @@ window.google = { accounts: { id: {
 const ROOT = path.join(__dirname, '..');
 const CDN_DIR = process.env.CDN_DIR || '/tmp/cdn/node_modules';
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbz-NSM70nThVEJkTZ3FUaf81pwZD-ykLvXbjfHOM_Nnf6sUSiHt8JK_D5TnQ4A9InU_/exec';
-const APP = 'https://app.test/';
+const APP = 'https://app.test/?mode=auto';   // 自動取得（SIFT_DATA）モードの E2E
 const hasCdn = fs.existsSync(path.join(CDN_DIR, 'bootstrap'));
 const BG_FOLDER = 'E2E_BACKGROUND_FOLDER';
 

@@ -300,3 +300,31 @@ GAS/APIで発生したエラーを記録します。
 | updatedAt / updatedBy | 更新日時・更新者（googleSub） |
 
 ID管理: `SHEET_BACKGROUND`（シート名）、`DRIVE_BACKGROUND_FOLDER_ID`（背景フォルダ。キャスト画像フォルダとは別）。
+
+
+## 手動シフト（手動モード・店舗×日付ごとのキャスト一覧）
+
+SIFT_DATA・シフト編集とは独立。保存のたびに新しい revision の行一式を追記 → 書き込み確認 → 古い revision の行を削除。
+読み取りは「行数が rowCount と一致する最新の revision」だけを使う（途中で失敗した書き込みは見えない）。
+
+| 列 | 内容 |
+|---|---|
+| store | KABUKI / AKIBA |
+| date | 対象日（YYYY-MM-DD） |
+| sortOrder | 並び順（1〜）。0 は「0人で保存した」印の行 |
+| castName | キャスト名（30 文字まで） |
+| castId | キャストID（`c_…` = キャスト画像シート、`drive:<fileId>` = 既存の画像フォルダ、空 = 写真なし） |
+| imageFileId | 保存時点の写真ファイルID（画像ID） |
+| updatedAt | 更新日時 |
+| revision | 店舗×日付ごとの版 |
+| rowCount | その revision の人数（書き込み確認用） |
+| updatedBy | 更新者（Google の利用者ID） |
+
+## キャスト画像（手動モードで登録した写真とキャストID）
+
+| 列 | 内容 |
+|---|---|
+| castId | `c_` + ランダム ID（同名キャストを区別する） |
+| castName / nameKey | 名前 / 照合用に正規化した名前 |
+| imageFileId / fileName / mimeType / width / height | 写真ファイル（`DRIVE_CAST_PHOTO_FOLDER_ID` のフォルダ内） |
+| revision / updatedAt / updatedBy | 差し替えの競合検知用 |

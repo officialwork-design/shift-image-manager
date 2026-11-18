@@ -56,6 +56,9 @@ const SpreadsheetService = {
     // アクセス権限はヘッダーのみ作成（空 = 全員拒否）。利用者は管理者が明示的に追加する。
     this.ensureSchemaSheet_(spreadsheet, config.SHEET_ACCESS_CONTROL, ACCESS_CONTROL_HEADERS, createdSheets);
     this.ensureSchemaSheet_(spreadsheet, config.SHEET_BACKGROUND || DEFAULT_CONFIG.SHEET_BACKGROUND, BACKGROUND_HEADERS, createdSheets);
+    // 手動モード（既存シートは変更しない。無ければヘッダーだけ作成）
+    this.ensureSchemaSheet_(spreadsheet, config.SHEET_MANUAL_SHIFT || DEFAULT_CONFIG.SHEET_MANUAL_SHIFT, MANUAL_SHIFT_HEADERS, createdSheets);
+    this.ensureSchemaSheet_(spreadsheet, config.SHEET_CAST_REGISTRY || DEFAULT_CONFIG.SHEET_CAST_REGISTRY, CAST_REGISTRY_HEADERS, createdSheets);
 
     return {
       success: true,
@@ -72,7 +75,9 @@ const SpreadsheetService = {
         config.SHEET_SHIFT_EDIT,
         config.SHEET_SHIFT_EDIT_MANAGE,
         config.SHEET_ACCESS_CONTROL,
-        config.SHEET_BACKGROUND
+        config.SHEET_BACKGROUND,
+        config.SHEET_MANUAL_SHIFT,
+        config.SHEET_CAST_REGISTRY
       ].filter(Boolean)
     };
   },

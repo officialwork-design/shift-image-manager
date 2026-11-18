@@ -23,6 +23,7 @@ function doPost(e) {
 const API_ROLES_ANY = ['ADMIN', 'EDITOR'];
 const API_MAX_BODY = 200000;
 const API_MAX_UPLOAD_BODY = 12 * 1024 * 1024;
+const API_UPLOAD_ACTIONS = ['saveBackground', 'registerCastPhoto'];   // 画像を送る操作だけ 200KB を超えてよい
 const API_ROLES_ADMIN = ['ADMIN'];
 
 const API_PUBLIC_ACTIONS = ['getPublicConfig', 'getConfig'];
@@ -48,6 +49,12 @@ const API_PROTECTED_ACTIONS = {
   getCastPhotos: API_ROLES_ANY,
   saveBackground: API_ROLES_ANY,
   clearBackground: API_ROLES_ADMIN,
+  // 手動モード（SIFT_DATA を使わずキャスト名を手入力）
+  getManualShift: API_ROLES_ANY,
+  saveManualShift: API_ROLES_ANY,
+  lookupCasts: API_ROLES_ANY,
+  getManualPhotos: API_ROLES_ANY,
+  registerCastPhoto: API_ROLES_ANY,
   resetShiftFromSource: API_ROLES_ADMIN,
   refreshImageCache: API_ROLES_ADMIN
 };
@@ -106,7 +113,7 @@ const ApiRouter = {
     // 通常の API は 200KB まで。背景画像のアップロード（saveBackground）のみ 12MB まで（画像 8MB の base64 + JSON）
     if (body.length > API_MAX_UPLOAD_BODY) throw Utils.apiError('INVALID_REQUEST', 'リクエストが大きすぎます');
     const request = Utils.parseJson(body, {});
-    if (body.length > API_MAX_BODY && String(request.action || '') !== 'saveBackground') {
+    if (body.length > API_MAX_BODY && API_UPLOAD_ACTIONS.indexOf(String(request.action || '')) === -1) {
       throw Utils.apiError('INVALID_REQUEST', 'リクエストが大きすぎます');
     }
     return {
@@ -182,6 +189,16 @@ const ApiRouter = {
         return BackgroundService.saveBackground(payload, ctx);
       case 'clearBackground':
         return BackgroundService.clearBackground(payload, ctx);
+      case 'getManualShift':
+        return ManualShiftService.getManualShift(payload.store, payload.date);
+      case 'saveManualShift':
+        return ManualShiftService.saveManualShift(payload, ctx);
+      case 'lookupCasts':
+        return ManualShiftService.lookupCasts(payload.names);
+      case 'getManualPhotos':
+        return ManualShiftService.getManualPhotos(payload.fileIds);
+      case 'registerCastPhoto':
+        return ManualShiftService.registerCastPhoto(payload, ctx);
       case 'checkImages':
         return ImageService.checkImages(payload.store, payload.date, ctx);
       default:

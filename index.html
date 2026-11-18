@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>画像シフト管理</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="assets/css/style.css?v=20261118-bg2">
+  <link rel="stylesheet" href="assets/css/style.css?v=20261118-manual1">
 </head>
 <body>
   <nav class="navbar navbar-expand-lg bg-white border-bottom sticky-top shadow-sm">
@@ -45,6 +45,69 @@
       <div id="gsiButtonRelogin"></div>
     </section>
 
+    <!-- 入力方法の切り替え（自動取得は将来の再利用のため残す。既定は手動入力） -->
+    <section class="d-flex flex-wrap align-items-center gap-2 mb-3" id="modeSwitch">
+      <div class="btn-group" role="group" aria-label="入力方法">
+        <input type="radio" class="btn-check" name="appMode" id="modeManual" value="manual" autocomplete="off" checked>
+        <label class="btn btn-outline-primary" for="modeManual">手動入力</label>
+        <input type="radio" class="btn-check" name="appMode" id="modeAuto" value="auto" autocomplete="off">
+        <label class="btn btn-outline-secondary" for="modeAuto">自動取得（SIFT_DATA）</label>
+      </div>
+      <span class="small text-secondary">手動入力はシフトデータ（SIFT_DATA）を使わず、キャスト名を入力して画像を作ります。</span>
+    </section>
+
+    <div id="alertArea"></div>
+
+    <!-- 手動モード -->
+    <div id="manualModeArea">
+      <section id="manualPanel" class="card shadow-sm mb-3">
+        <div class="card-header bg-white fw-bold d-flex flex-wrap align-items-center gap-2">
+          <span>手動入力</span>
+          <span id="manualSaveState" class="badge text-bg-secondary">未読み込み</span>
+          <span id="manualTarget" class="small text-secondary fw-normal"></span>
+        </div>
+        <div class="card-body">
+          <div class="row g-2 align-items-end mb-3">
+            <div class="col-12 col-md-5">
+              <div class="form-label fw-bold mb-1">店舗</div>
+              <div class="btn-group w-100" role="group" aria-label="店舗">
+                <button type="button" class="btn btn-outline-primary js-manual-store" data-store="KABUKI" aria-pressed="false">歌舞伎</button>
+                <button type="button" class="btn btn-outline-primary js-manual-store" data-store="AKIBA" aria-pressed="false">秋葉原</button>
+              </div>
+            </div>
+            <div class="col-6 col-md-3">
+              <label for="manualDate" class="form-label fw-bold mb-1">対象日</label>
+              <input id="manualDate" type="date" class="form-control">
+            </div>
+            <div class="col-6 col-md-4 d-flex gap-2 justify-content-end">
+              <button id="manualReloadButton" type="button" class="btn btn-outline-primary rounded-pill" title="保存済みの内容を読み込みます">再読み込み</button>
+              <button id="manualSaveButton" type="button" class="btn btn-primary rounded-pill" disabled>編集保存</button>
+            </div>
+          </div>
+          <div class="row g-2 align-items-end mb-2">
+            <div class="col-12 col-md-8">
+              <label for="manualAddName" class="form-label fw-bold mb-1">キャスト名</label>
+              <input id="manualAddName" class="form-control" list="castNameOptions" autocomplete="off" maxlength="30" placeholder="名前を入力して Enter または「追加」">
+            </div>
+            <div class="col-12 col-md-4 d-grid">
+              <button id="manualAddButton" type="button" class="btn btn-outline-primary rounded-pill">追加</button>
+            </div>
+          </div>
+          <details class="mb-3">
+            <summary class="small">まとめて入力（1行に1人。「、」「,」区切りも可）</summary>
+            <textarea id="manualBulkInput" rows="4" class="form-control mt-2" aria-label="まとめて入力"></textarea>
+            <button id="manualBulkAddButton" type="button" class="btn btn-sm btn-outline-primary rounded-pill mt-2">まとめて追加</button>
+          </details>
+          <div id="manualList" class="manual-list"></div>
+          <div id="manualSummary" class="small text-secondary mt-2"></div>
+          <input id="manualPhotoInput" type="file" class="d-none" accept="image/png,image/jpeg" aria-label="キャスト写真を選択">
+          <p class="small text-secondary mt-2 mb-0">写真は名前入りのカード画像（PNG / JPEG・3MB まで）をそのまま並べます。画面で名前や枠は描き足しません（写真未登録の人だけ名前入りの仮カードになります）。</p>
+        </div>
+      </section>
+    </div>
+
+    <!-- 自動モード（SIFT_DATA 連携。削除せず保持） -->
+    <div class="js-auto-only d-none">
     <section class="card shadow-sm mb-3">
       <div class="card-body">
         <div class="row g-2 align-items-end">
@@ -71,8 +134,6 @@
         </div>
       </div>
     </section>
-
-    <div id="alertArea"></div>
 
     <!-- 保存競合（自動上書きしない。画面上の未保存入力は残したまま最新データを比較できる） -->
     <section id="conflictPanel" class="card border-danger shadow-sm mb-3 d-none" role="alert">
@@ -132,11 +193,14 @@
       </div>
     </section>
 
+    </div><!-- /.js-auto-only -->
+
     <!-- 背景画像・出勤キャスト画像の生成（1447 × 2048 px 固定・人数で自動配置） -->
     <section id="bgSection" class="card shadow-sm mb-3">
       <div class="card-header bg-white fw-bold d-flex flex-wrap align-items-center gap-2">
         <span>背景画像・画像生成</span>
         <span id="bgStoreLabel" class="badge text-bg-light border"></span>
+        <span id="bgModeLabel" class="badge text-bg-primary"></span>
         <span class="small text-secondary fw-normal">完成画像は常に 1447 × 2048 px</span>
       </div>
       <div class="card-body">
@@ -192,6 +256,7 @@
       </div>
     </section>
 
+    <div class="js-auto-only d-none">
     <!-- A: SIFT_DATA原本確認（外部取得の元投稿をそのまま表示。編集は反映しない） -->
     <section class="card shadow-sm mb-3">
       <div class="card-header bg-white fw-bold">SIFT_DATA原本確認</div>
@@ -233,6 +298,7 @@
         </div>
       </div>
     </section>
+    </div><!-- /.js-auto-only -->
     </div><!-- /#appContent -->
   </main>
 
@@ -286,6 +352,32 @@
     </div>
   </div>
 
+  <!-- 手動モード: 画像生成前の確認 -->
+  <div class="modal fade" id="manualConfirmModal" tabindex="-1" aria-labelledby="manualConfirmTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="manualConfirmTitle">この内容で画像を生成します</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="閉じる"></button>
+        </div>
+        <div class="modal-body">
+          <dl class="row mb-2 small">
+            <dt class="col-3">店舗・日付</dt><dd id="manualConfirmTarget" class="col-9 fw-bold mb-1"></dd>
+            <dt class="col-3">人数</dt><dd id="manualConfirmCount" class="col-9 mb-1"></dd>
+            <dt class="col-3">背景</dt><dd id="manualConfirmBackground" class="col-9 mb-1"></dd>
+          </dl>
+          <div id="manualConfirmDirty" class="alert alert-warning small py-2 d-none">入力内容はまだ保存されていません（画像は画面の内容で作ります。残す場合は「編集保存」してください）。</div>
+          <div id="manualConfirmErrors" class="alert alert-danger small py-2 d-none"></div>
+          <ol id="manualConfirmList" class="list-unstyled small mb-0 manual-confirm-list"></ol>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary rounded-pill" data-bs-dismiss="modal">戻る</button>
+          <button id="manualConfirmRun" type="button" class="btn btn-success rounded-pill">この内容で生成</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="loading" class="loading d-none">
     <div class="spinner-border text-light" role="status"></div>
     <div id="loadingText" class="text-white fw-bold mt-2">処理中...</div>
@@ -294,11 +386,12 @@
   <script src="https://accounts.google.com/gsi/client" async></script>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-  <script src="config.js?v=20261118-bg2"></script>
-  <script src="assets/js/auth.js?v=20261118-bg2"></script>
-  <script src="assets/js/api.js?v=20261118-bg2"></script>
-  <script src="assets/js/shift-state.js?v=20261118-bg2"></script>
-  <script src="assets/js/image-generator.js?v=20261118-bg2"></script>
-  <script src="assets/js/app.js?v=20261118-bg2"></script>
+  <script src="config.js?v=20261118-manual1"></script>
+  <script src="assets/js/auth.js?v=20261118-manual1"></script>
+  <script src="assets/js/api.js?v=20261118-manual1"></script>
+  <script src="assets/js/shift-state.js?v=20261118-manual1"></script>
+  <script src="assets/js/image-generator.js?v=20261118-manual1"></script>
+  <script src="assets/js/manual-mode.js?v=20261118-manual1"></script>
+  <script src="assets/js/app.js?v=20261118-manual1"></script>
 </body>
 </html>

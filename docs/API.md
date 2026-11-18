@@ -60,6 +60,11 @@
 | saveBackground | ADMIN / EDITOR | **新規（背景）** | 背景画像の差し替え・余白色・配置領域の保存（revision 検証・LockService） |
 | clearBackground | **ADMIN** | **新規（背景）** | 背景の登録解除（Drive のファイルは削除しない） |
 | getCastPhotos | ADMIN / EDITOR | **新規（背景）** | 画像生成用: 出勤キャスト（並び順・休み除外）と写真（data URL） |
+| getManualShift | ADMIN / EDITOR | **新規（手動）** | 手動シフト `{ store, date }` → `{ revision, rows[{ sortOrder, castName, castId, imageFileId, photo }] }`。SIFT_DATA は使わない |
+| saveManualShift | ADMIN / EDITOR | **新規（手動）** | `{ store, date, expectedRevision, rows[{ castName, castId? }] }`（配列順 = 並び順・40人まで）。revision 競合は REVISION_CONFLICT。LockService |
+| lookupCasts | ADMIN / EDITOR | **新規（手動）** | `{ names[] }` → 名前ごとの写真候補 `[{ castId, castName, imageFileId, revision, source }]`（登録キャスト優先、無ければ画像フォルダ） |
+| getManualPhotos | ADMIN / EDITOR | **新規（手動）** | `{ fileIds[] }` → `{ photos{ id: dataURL }, failed[] }`。登録済み写真・画像フォルダ内のファイル以外は返さない |
+| registerCastPhoto | ADMIN / EDITOR | **新規（手動）** | `{ castName, image, castId?, expectedRevision?, allowSameName? }`。写真を drive.file で保存しキャストID を発行／差し替え。同名は CAST_NAME_EXISTS。本文 12MB まで |
 
 ### 背景画像・画像生成 API（詳細は docs/IMAGE_LAYOUT.md）
 
