@@ -24,7 +24,7 @@ const BACKGROUND_LIMITS = {
   MIME_TYPES: ['image/png', 'image/jpeg'],
   CANVAS_WIDTH: 1447,
   CANVAS_HEIGHT: 2048,
-  DEFAULT_AREA: { top: 350, bottom: 210, left: 60, right: 60 },   // 参考デザインから確定（docs/IMAGE_LAYOUT.md §4）
+  DEFAULT_AREA: { top: 580, bottom: 220, left: 33, right: 33 },   // 完成見本から確定（docs/IMAGE_LAYOUT.md §4）
   MIN_AREA_WIDTH: 400,
   MIN_AREA_HEIGHT: 400,
   MAX_PHOTOS: 40,

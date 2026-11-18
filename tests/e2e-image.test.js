@@ -193,16 +193,16 @@ test('E2E 画像生成: 背景アップロード・店舗別・自動配置・PN
           const head = new DataView(await blob.slice(0, 24).arrayBuffer());
           out.push({ n, w: c.width, h: c.height, pngW: head.getUint32(16), pngH: head.getUint32(20), rows: r.layout.rows,
             valid: ImageGenerator.validateLayout(r.layout).ok,
-            namesFit: r.names.every((f, i) => f.lines.join('') === casts[i].name) });
+            namesFit: r.names.every((f, i) => (casts[i].image ? f === null : f.lines.join('') === casts[i].name)) });
         }
         return out;
       });
       results.forEach(r => {
         assert.deepEqual([r.w, r.h, r.pngW, r.pngH], [1447, 2048, 1447, 2048], 'n=' + r.n);
         assert.equal(r.valid, true, 'n=' + r.n);
-        assert.equal(r.namesFit, true, '名前を省略しない n=' + r.n);
+        assert.equal(r.namesFit, true, '写真ありは名前を描かない（カードに含まれる）・写真なしは名前を省略せず描く n=' + r.n);
       });
-      assert.deepEqual(results.map(r => r.rows.length), [0, 1, 1, 1, 2, 2, 3, 3, 4, 4]);
+      assert.deepEqual(results.map(r => r.rows.length), [0, 1, 1, 1, 2, 2, 3, 3, 3, 4]);
     });
 
     await t.test('長すぎる名前は重ねて描かずエラー表示（PNG 保存不可）', async () => {

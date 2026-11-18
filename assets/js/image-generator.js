@@ -18,19 +18,40 @@
   'use strict';
 
   const CANVAS = Object.freeze({ width: 1447, height: 2048 });
-  // 参考デザイン（KABUKI 背景 2480×3508）から確定: 見出し下端 y≈319・ロゴ上端 y≈1868（キャンバス換算）に各 約30px の余裕
-  const DEFAULT_AREA = Object.freeze({ top: 350, bottom: 210, left: 60, right: 60 });
-  const PHOTO_RATIO = 4 / 3;            // 写真枠の 高さ / 幅（3:4）
-  const SIZING = Object.freeze({
-    maxPhotoWidth: 520,                 // 1人のときの上限（大きくなりすぎない）
-    minPhotoWidth: 80,                  // これより小さくなる場合は配置不可
-    gapXRatio: 0.10, minGapX: 12,       // 写真どうしの横の間隔
-    gapYRatio: 0.10, minGapY: 16,       // 段どうしの縦の間隔（名前の下〜次の写真）
-    nameGapRatio: 0.04, minNameGap: 6,  // 写真〜名前
-    nameHeightRatio: 0.22, minNameHeight: 34,
-    minFontSize: 10
+  // 配置領域: 完成見本（KABUKI 13人・2480×3508）のカード配置範囲から確定（docs/IMAGE_LAYOUT.md §4）
+  //   カード上端 y≈581・下端 y≈1825（キャンバス換算）、5枚の幅 1381px を左右中央。見出し下端 319・ロゴ上端 1868 を避ける
+  const DEFAULT_AREA = Object.freeze({ top: 580, bottom: 220, left: 33, right: 33 });
+
+  /**
+   * 配置方式
+   * - card（既定）: 店舗が作成済みの「名前入りカード画像」をそのまま並べる。名前・枠は描かない。画像は切り抜かない（contain）
+   *   完成見本: カード 約 247 × 387 px（縦横比 1 : 1.567）、横の間隔 ≈ 0.15 × 幅、段の間隔 ≈ 0.15 × 幅、上の段から詰める（13人 → 5/5/3）
+   * - photo: 写真（3:4・切り抜き）＋ 名前をアプリが描く方式（名前入りカードが無い場合用）
+   */
+  const PROFILES = Object.freeze({
+    card: Object.freeze({
+      ratio: 1.567, maxWidth: 400, minWidth: 80,
+      gapXRatio: 0.15, minGapX: 12, gapYRatio: 0.15, minGapY: 12,
+      nameGapRatio: 0, minNameGap: 0, nameHeightRatio: 0, minNameHeight: 0,
+      distribution: 'fill', lastRow: 'spaceEvenly', drawName: false, frame: false, fit: 'contain'
+    }),
+    photo: Object.freeze({
+      ratio: 4 / 3, maxWidth: 520, minWidth: 80,
+      gapXRatio: 0.10, minGapX: 12, gapYRatio: 0.10, minGapY: 16,
+      nameGapRatio: 0.04, minNameGap: 6, nameHeightRatio: 0.22, minNameHeight: 34,
+      distribution: 'balanced', lastRow: 'center', drawName: true, frame: true, fit: 'cover'
+    })
   });
+  const DEFAULT_MODE = 'card';
+  const PHOTO_RATIO = PROFILES.card.ratio;   // 互換: 既定方式の 高さ / 幅
+  const SIZING = Object.freeze({ maxPhotoWidth: PROFILES.card.maxWidth, minPhotoWidth: PROFILES.card.minWidth, minFontSize: 10 });
   const FONT_FAMILY = '"Hiragino Kaku Gothic ProN", "Hiragino Sans", "Noto Sans JP", "Yu Gothic", Meiryo, sans-serif';
+
+  function profileOf(mode) {
+    const p = PROFILES[mode || DEFAULT_MODE];
+    if (!p) throw layoutError('INVALID_MODE', '配置方式が不正です: ' + mode);
+    return p;
+  }
 
   function layoutError(code, message, details) {
     const err = new Error(message);
@@ -39,10 +60,10 @@
     return err;
   }
 
-  // ===== 段数（初期配置ルール） =====
+  // ===== 段数 =====
   // 0:背景のみ / 1〜3:1段 / 4〜8:2段 / 9〜13:3段 / 14〜:写真が最も大きくなる段数（3段以上）
-  // 9〜10人は写真の視認性を優先して3段（2段 5/5 より写真が大きくなる）
-  function rowCountFor(n, area) {
+  // 9〜10人は写真の視認性を優先して3段
+  function rowCountFor(n, area, mode) {
     if (n <= 0) return 0;
     if (n <= 3) return 1;
     if (n <= 8) return 2;
@@ -50,18 +71,26 @@
     let best = 3;
     let bestWidth = -1;
     for (let r = 3; r <= n; r++) {
-      const w = maxPhotoWidthFor(distribute(n, r), area);
+      const w = maxPhotoWidthFor(distribute(n, r, mode), area, mode);
       if (w > bestWidth + 0.5) { best = r; bestWidth = w; }
     }
     return best;
   }
 
-  // 各段の人数。上の段から多めに割り振る（例: 5→3/2, 7→4/3, 11→4/4/3, 13→5/4/4）
-  function distribute(n, rows) {
+  // 各段の人数
+  // - fill（card 既定・完成見本どおり）: 上の段から 1段あたり ceil(人数/段数) 人ずつ詰め、最終段に残り（13→5/5/3、10→4/4/2）
+  // - balanced（photo）: 差が 1 人以内になるよう上の段から多めに（13→5/4/4、10→4/3/3）
+  function distribute(n, rows, mode) {
     if (n <= 0 || rows <= 0) return [];
+    const out = [];
+    if (profileOf(mode).distribution === 'fill') {
+      const cols = Math.ceil(n / rows);
+      let left = n;
+      for (let i = 0; i < rows && left > 0; i++) { out.push(Math.min(cols, left)); left -= cols; }
+      return out;
+    }
     const base = Math.floor(n / rows);
     const extra = n % rows;
-    const out = [];
     for (let i = 0; i < rows; i++) out.push(base + (i < extra ? 1 : 0));
     return out.filter(c => c > 0);
   }
@@ -73,14 +102,15 @@
     return box;
   }
 
-  function metricsFor(photoW) {
+  function metricsFor(photoW, mode) {
+    const p = profileOf(mode);
     return {
       photoW,
-      photoH: photoW * PHOTO_RATIO,
-      gapX: Math.max(photoW * SIZING.gapXRatio, SIZING.minGapX),
-      gapY: Math.max(photoW * SIZING.gapYRatio, SIZING.minGapY),
-      nameGap: Math.max(photoW * SIZING.nameGapRatio, SIZING.minNameGap),
-      nameH: Math.max(photoW * SIZING.nameHeightRatio, SIZING.minNameHeight)
+      photoH: photoW * p.ratio,
+      gapX: Math.max(photoW * p.gapXRatio, p.minGapX),
+      gapY: Math.max(photoW * p.gapYRatio, p.minGapY),
+      nameGap: p.drawName ? Math.max(photoW * p.nameGapRatio, p.minNameGap) : 0,
+      nameH: p.drawName ? Math.max(photoW * p.nameHeightRatio, p.minNameHeight) : 0
     };
   }
 
@@ -90,20 +120,22 @@
     return { w: maxCols * m.photoW + (maxCols - 1) * m.gapX, h: rows.length * cellH + (rows.length - 1) * m.gapY, cellH };
   }
 
-  function fits(rows, box, photoW) {
-    const b = blockSize(rows, metricsFor(photoW));
+  function fits(rows, box, photoW, mode) {
+    const b = blockSize(rows, metricsFor(photoW, mode));
     return b.w <= box.w + 1e-6 && b.h <= box.h + 1e-6;
   }
 
-  // 配置領域に収まる最大の写真幅（整数 px）
-  function maxPhotoWidthFor(rows, areaOrBox) {
+  // 配置領域に収まる最大の写真（カード）幅（整数 px）
+  function maxPhotoWidthFor(rows, areaOrBox, mode) {
+    const p = profileOf(mode);
     const box = areaOrBox && areaOrBox.w !== undefined ? areaOrBox : normalizeArea(areaOrBox);
     const maxCols = Math.max.apply(null, rows);
     const r = rows.length;
-    const byW = box.w / (maxCols + (maxCols - 1) * SIZING.gapXRatio);
-    const byH = box.h / (r * (PHOTO_RATIO + SIZING.nameGapRatio + SIZING.nameHeightRatio) + (r - 1) * SIZING.gapYRatio);
-    let w = Math.floor(Math.min(SIZING.maxPhotoWidth, byW, byH));
-    while (w > 0 && !fits(rows, box, w)) w -= 1;   // 最小値（minGap 等）の影響を補正
+    const nameRatio = p.drawName ? p.nameGapRatio + p.nameHeightRatio : 0;
+    const byW = box.w / (maxCols + (maxCols - 1) * p.gapXRatio);
+    const byH = box.h / (r * (p.ratio + nameRatio) + (r - 1) * p.gapYRatio);
+    let w = Math.floor(Math.min(p.maxWidth, byW, byH));
+    while (w > 0 && !fits(rows, box, w, mode)) w -= 1;   // 最小値（minGap 等）の影響を補正
     return w;
   }
 
@@ -114,28 +146,36 @@
    */
   function computeLayout(count, options) {
     const opts = options || {};
+    const mode = opts.mode || DEFAULT_MODE;
+    const p = profileOf(mode);
     const n = Math.max(0, Math.floor(Number(count) || 0));
     const box = normalizeArea(opts.area);
-    const base = { count: n, canvas: Object.assign({}, CANVAS), area: box, rows: [], cells: [], photoW: 0, photoH: 0 };
+    const base = { count: n, mode, canvas: Object.assign({}, CANVAS), area: box, rows: [], cells: [], photoW: 0, photoH: 0 };
     if (n === 0) return base;
 
-    const rows = distribute(n, rowCountFor(n, box));
-    const photoW = maxPhotoWidthFor(rows, box);
-    if (photoW < SIZING.minPhotoWidth) {
+    const rows = distribute(n, rowCountFor(n, box, mode), mode);
+    const photoW = maxPhotoWidthFor(rows, box, mode);
+    if (photoW < p.minWidth) {
       throw layoutError('LAYOUT_OVERFLOW', n + '人を配置領域に収められません（写真が小さくなりすぎます）。配置領域を広げてください',
         { count: n, rows, photoW });
     }
-    const m = metricsFor(photoW);
+    const m = metricsFor(photoW, mode);
     const size = blockSize(rows, m);
     const top = box.y + (box.h - size.h) / 2;          // 領域内で上下中央
     const cells = [];
     let index = 0;
+    const maxCols = Math.max.apply(null, rows);
     rows.forEach((cols, r) => {
-      const rowW = cols * m.photoW + (cols - 1) * m.gapX;
-      const left = box.x + (box.w - rowW) / 2;         // 各段を左右中央（最終段が少人数でも中央）
+      // 各段を左右中央（最終段が少人数でも中央）
+      // card: 人数が足りない段は、満員の段と同じ幅の中に等間隔で並べる（完成見本の最終段 3 人と同じ）
+      const spread = p.lastRow === 'spaceEvenly' && cols < maxCols;
+      const gap = spread ? (size.w - cols * m.photoW) / (cols + 1) : m.gapX;
+      const rowW = spread ? size.w : cols * m.photoW + (cols - 1) * m.gapX;
+      const rowLeft = box.x + (box.w - rowW) / 2;
+      const left = spread ? rowLeft + gap : rowLeft;
       const y = top + r * (size.cellH + m.gapY);
       for (let c = 0; c < cols; c++) {
-        const x = left + c * (m.photoW + m.gapX);
+        const x = left + c * (m.photoW + gap);
         // 名前枠は写真幅＋左右の間隔の半分ずつ（隣の名前枠とは重ならない）。配置領域の外には出さない
         const nameInset = 1;
         const nx1 = Math.max(box.x, x - m.gapX / 2 + nameInset);
@@ -143,7 +183,7 @@
         cells.push({
           index: index++, row: r, col: c,
           photo: { x, y, w: m.photoW, h: m.photoH },
-          name: { x: nx1, y: y + m.photoH + m.nameGap, w: nx2 - nx1, h: m.nameH }
+          name: p.drawName ? { x: nx1, y: y + m.photoH + m.nameGap, w: nx2 - nx1, h: m.nameH } : null
         });
       }
     });
@@ -153,7 +193,10 @@
   // 全セルが領域内にあり、写真・名前がどれも重ならないことを検証（重なりがあれば描画しない）
   function validateLayout(layout) {
     const rects = [];
-    layout.cells.forEach(c => { rects.push(Object.assign({ kind: 'photo', i: c.index }, c.photo)); rects.push(Object.assign({ kind: 'name', i: c.index }, c.name)); });
+    layout.cells.forEach(c => {
+      rects.push(Object.assign({ kind: 'photo', i: c.index }, c.photo));
+      if (c.name) rects.push(Object.assign({ kind: 'name', i: c.index }, c.name));
+    });
     const a = layout.area;
     const eps = 0.01;
     for (const r of rects) {
@@ -284,18 +327,26 @@
    */
   function render(canvas, input) {
     const opts = input || {};
-    const style = Object.assign({ textColor: '#2b2b2b', labelColor: 'rgba(255,255,255,0.88)', frameColor: '#ffffff', shadow: true }, opts.style || {});
+    const mode = opts.mode || DEFAULT_MODE;
+    const prof = profileOf(mode);
+    const style = Object.assign({ textColor: '#2b2b2b', labelColor: 'rgba(255,255,255,0.88)', frameColor: '#ffffff', shadow: true,
+      cardNameColor: '#38a8e0' }, opts.style || {});
     canvas.width = CANVAS.width;
     canvas.height = CANVAS.height;
     const ctx = canvas.getContext('2d');
     const casts = Array.isArray(opts.casts) ? opts.casts : [];
 
     // 1) 配置と名前サイズを先にすべて計算（失敗したら何も描かない）
-    const layout = computeLayout(casts.length, { area: opts.area });
+    const layout = computeLayout(casts.length, { area: opts.area, mode });
     const check = validateLayout(layout);
     if (!check.ok) throw layoutError('LAYOUT_OVERLAP', '写真と名前が重なるため画像を生成できません', check);
     const measure = (text, size) => { ctx.font = font(size); return ctx.measureText(text).width; };
-    const names = layout.cells.map(c => fitName(casts[c.index].name, c.name, measure));
+    // card 方式: 名前はカード画像に入っているため描かない。写真が無い人だけプレースホルダーのカードに名前を描く
+    const names = layout.cells.map(c => {
+      const cast = casts[c.index];
+      if (prof.drawName) return fitName(cast.name, c.name, measure);
+      return cast.image ? null : fitName(cast.name, cardNameBox(c.photo), measure);
+    });
 
     // 2) 背景（余白色 → 背景 contain）
     const bg = opts.background || null;
@@ -309,48 +360,81 @@
     // 3) キャスト（シフトの並び順）
     layout.cells.forEach((cell, i) => {
       const cast = casts[cell.index];
-      const p = cell.photo;
-      const radius = Math.max(6, p.w * 0.05);
-      const border = Math.max(3, p.w * 0.02);
-      ctx.save();
-      if (style.shadow) { ctx.shadowColor = 'rgba(0,0,0,0.25)'; ctx.shadowBlur = p.w * 0.05; ctx.shadowOffsetY = p.w * 0.015; }
-      ctx.fillStyle = style.frameColor;
-      roundRect(ctx, p.x, p.y, p.w, p.h, radius);
-      ctx.fill();
-      ctx.restore();
-
-      ctx.save();
-      const inner = { x: p.x + border, y: p.y + border, w: p.w - border * 2, h: p.h - border * 2 };
-      roundRect(ctx, inner.x, inner.y, inner.w, inner.h, Math.max(2, radius - border));
-      ctx.clip();
-      if (cast.image) {
-        const img = cast.image;
-        const crop = coverCrop(img.naturalWidth || img.width, img.naturalHeight || img.height, inner.w, inner.h);
-        ctx.drawImage(img, crop.sx, crop.sy, crop.sw, crop.sh, inner.x, inner.y, inner.w, inner.h);
-      } else {
-        drawPlaceholder(ctx, inner);
-      }
-      ctx.restore();
-
-      // 名前（写真の下・ラベル内に収める）
-      const nb = cell.name;
-      const fitted = names[i];
-      ctx.save();
-      ctx.fillStyle = style.labelColor;
-      roundRect(ctx, nb.x, nb.y, nb.w, nb.h, Math.min(nb.h / 2, 18));
-      ctx.fill();
-      ctx.fillStyle = style.textColor;
-      ctx.font = font(fitted.fontSize);
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      const totalH = fitted.lineHeight * fitted.lines.length;
-      fitted.lines.forEach((line, k) => {
-        ctx.fillText(line, nb.x + nb.w / 2, nb.y + (nb.h - totalH) / 2 + fitted.lineHeight * (k + 0.5));
-      });
-      ctx.restore();
+      if (prof.drawName) drawPhotoWithName(ctx, cell, cast, names[i], style);
+      else drawCard(ctx, cell, cast, names[i], style);
     });
 
     return { layout, names };
+  }
+
+  // card 方式: 名前入りカード画像を枠いっぱいに収める（縦横比維持・切り抜かない・加工しない）
+  function drawCard(ctx, cell, cast, fitted, style) {
+    const p = cell.photo;
+    if (cast.image) {
+      const img = cast.image;
+      const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+      const scale = Math.min(p.w / iw, p.h / ih);
+      const w = iw * scale, h = ih * scale;
+      ctx.drawImage(img, p.x + (p.w - w) / 2, p.y + (p.h - h) / 2, w, h);
+      return;
+    }
+    // 写真なし: 完成見本と同じ形の白いカード（写真部分は NO PHOTO・下に名前）
+    ctx.save();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(p.x, p.y, p.w, p.h);
+    const inner = { x: p.x + p.w * 0.07, y: p.y + p.w * 0.07, w: p.w * 0.86, h: p.h * 0.73 };
+    drawPlaceholder(ctx, inner);
+    const nb = cardNameBox(p);
+    ctx.fillStyle = style.cardNameColor;
+    ctx.font = font(fitted.fontSize);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const totalH = fitted.lineHeight * fitted.lines.length;
+    fitted.lines.forEach((line, k) => ctx.fillText(line, nb.x + nb.w / 2, nb.y + (nb.h - totalH) / 2 + fitted.lineHeight * (k + 0.5)));
+    ctx.restore();
+  }
+
+  function cardNameBox(p) {
+    return { x: p.x + p.w * 0.06, y: p.y + p.h * 0.8, w: p.w * 0.88, h: p.h * 0.16 };
+  }
+
+  // photo 方式: 写真（3:4・切り抜き）＋白枠・影＋名前ラベル
+  function drawPhotoWithName(ctx, cell, cast, fitted, style) {
+    const p = cell.photo;
+    const radius = Math.max(6, p.w * 0.05);
+    const border = Math.max(3, p.w * 0.02);
+    ctx.save();
+    if (style.shadow) { ctx.shadowColor = 'rgba(0,0,0,0.25)'; ctx.shadowBlur = p.w * 0.05; ctx.shadowOffsetY = p.w * 0.015; }
+    ctx.fillStyle = style.frameColor;
+    roundRect(ctx, p.x, p.y, p.w, p.h, radius);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    const inner = { x: p.x + border, y: p.y + border, w: p.w - border * 2, h: p.h - border * 2 };
+    roundRect(ctx, inner.x, inner.y, inner.w, inner.h, Math.max(2, radius - border));
+    ctx.clip();
+    if (cast.image) {
+      const img = cast.image;
+      const crop = coverCrop(img.naturalWidth || img.width, img.naturalHeight || img.height, inner.w, inner.h);
+      ctx.drawImage(img, crop.sx, crop.sy, crop.sw, crop.sh, inner.x, inner.y, inner.w, inner.h);
+    } else {
+      drawPlaceholder(ctx, inner);
+    }
+    ctx.restore();
+
+    const nb = cell.name;
+    ctx.save();
+    ctx.fillStyle = style.labelColor;
+    roundRect(ctx, nb.x, nb.y, nb.w, nb.h, Math.min(nb.h / 2, 18));
+    ctx.fill();
+    ctx.fillStyle = style.textColor;
+    ctx.font = font(fitted.fontSize);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const totalH = fitted.lineHeight * fitted.lines.length;
+    fitted.lines.forEach((line, k) => ctx.fillText(line, nb.x + nb.w / 2, nb.y + (nb.h - totalH) / 2 + fitted.lineHeight * (k + 0.5)));
+    ctx.restore();
   }
 
   // PNG（Blob）。外部画像で Canvas が汚染されている場合は CANVAS_TAINTED
@@ -366,7 +450,7 @@
   }
 
   return {
-    CANVAS, DEFAULT_AREA, PHOTO_RATIO, SIZING, FONT_FAMILY,
+    CANVAS, DEFAULT_AREA, PHOTO_RATIO, SIZING, FONT_FAMILY, PROFILES, DEFAULT_MODE,
     rowCountFor, distribute, computeLayout, validateLayout, maxPhotoWidthFor, fitName, fitBackground, coverCrop,
     loadImage, sampleEdgeColor, render, toPngBlob, normalizeArea
   };
