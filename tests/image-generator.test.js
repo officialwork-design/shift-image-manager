@@ -147,3 +147,16 @@ test('写真: 3:4 枠を埋める切り抜きは元画像の範囲内', () => {
     assert.ok(near(c.sh / c.sw, 4 / 3, 1e-6));
   }
 });
+
+test('既定の配置領域（参考デザインから確定）: 0〜40人で見出し（y≦319）・ロゴ（y≧1868）に重ならない', () => {
+  assert.deepEqual({ ...G.DEFAULT_AREA }, { top: 350, bottom: 210, left: 60, right: 60 });
+  const gasSrc = require('fs').readFileSync(require('path').join(__dirname, '..', 'gas', 'BackgroundService.gs'), 'utf8');
+  assert.match(gasSrc, /DEFAULT_AREA: \{ top: 350, bottom: 210, left: 60, right: 60 \}/, 'GAS 側の既定値と一致');
+  for (let n = 1; n <= 40; n++) {
+    const L = G.computeLayout(n);
+    L.cells.forEach(c => {
+      assert.ok(c.photo.y >= 319 + 30, 'n=' + n);
+      assert.ok(c.name.y + c.name.h <= 1868 - 30, 'n=' + n);
+    });
+  }
+});

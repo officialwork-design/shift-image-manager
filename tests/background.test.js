@@ -77,7 +77,7 @@ test('背景: 取得は data URL（Canvas を汚染しない）・設定値・�
   assert.equal(k.success, true, JSON.stringify(k));
   assert.match(k.data.dataUrl, /^data:image\/jpeg;base64,/);
   assert.equal(Buffer.from(k.data.dataUrl.split(',')[1], 'base64').equals(jpeg(1080, 1920)), true);
-  assert.deepEqual(k.data.settings.area, { top: 440, bottom: 200, left: 60, right: 60 });
+  assert.deepEqual(k.data.settings.area, { top: 350, bottom: 210, left: 60, right: 60 });
   const a = callPost(h, 'getBackground', { store: 'AKIBA' }, EDITOR);
   assert.equal(a.data.configured, false);
   assert.equal(a.data.revision, 0);

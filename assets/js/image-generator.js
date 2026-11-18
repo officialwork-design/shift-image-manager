@@ -18,7 +18,8 @@
   'use strict';
 
   const CANVAS = Object.freeze({ width: 1447, height: 2048 });
-  const DEFAULT_AREA = Object.freeze({ top: 440, bottom: 200, left: 60, right: 60 });
+  // 参考デザイン（KABUKI 背景 2480×3508）から確定: 見出し下端 y≈319・ロゴ上端 y≈1868（キャンバス換算）に各 約30px の余裕
+  const DEFAULT_AREA = Object.freeze({ top: 350, bottom: 210, left: 60, right: 60 });
   const PHOTO_RATIO = 4 / 3;            // 写真枠の 高さ / 幅（3:4）
   const SIZING = Object.freeze({
     maxPhotoWidth: 520,                 // 1人のときの上限（大きくなりすぎない）

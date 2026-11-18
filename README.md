@@ -608,7 +608,7 @@ CDN_DIR=/path/to/node_modules npm run test:e2e   # Chromium E2E（GIS・GAS は�
 仕様書: [docs/IMAGE_LAYOUT.md](docs/IMAGE_LAYOUT.md)（画像サイズ・配置アルゴリズム・写真枠・余白・文字サイズ・人数別レイアウト・Drive API・権限）
 
 > 状態: ローカル実装・テスト済み。**テスト用 GAS / WebApp には未反映**（反映は承認後）。
-> 配置領域の既定値は**暫定**（参考デザイン「本日の出勤キャスト」画像の確認待ち）。
+> 配置領域の既定値は参考デザイン（KABUKI 背景）の解析で**確定**（上 350 / 下 210 / 左右 60 px）。
 
 ## 1. 概要
 - 店舗ごとに背景画像を 1 枚登録し、出勤キャストの人数に合わせて写真と名前を自動で並べた PNG を作る。
@@ -654,7 +654,7 @@ CDN_DIR=/path/to/node_modules npm run test:e2e   # Chromium E2E（GIS・GAS は�
 | 完成画像 | **1447 × 2048 px（固定）** |
 | 写真枠 | 3:4。人数と配置領域に応じて幅 520〜80 px |
 | 背景 | PNG / JPEG、8MB まで、短辺 200 px 以上・長辺 8000 px 以下（比率は任意。切り抜かずに収める） |
-| 配置領域の既定値（暫定） | 上 440 / 下 200 / 左 60 / 右 60 px（最小 幅 400・高さ 400 px） |
+| 配置領域の既定値（確定） | 上 350 / 下 210 / 左 60 / 右 60 px = 1327 × 1488 px（見出し下端 319 px・ロゴ上端 1868 px に各 約 30 px の余裕。最小 幅 400・高さ 400 px） |
 
 ## 7. エラー対応
 | 表示 / コード | 対処 |
@@ -680,7 +680,7 @@ CDN_DIR=/path/to/node_modules npm run test:e2e   # Chromium E2E（GIS・GAS は�
 
 ## 9. テスト
 ```bash
-npm test                 # 単体・GAS・権限（配置計算 13 / 背景 16 を含む）
+npm test                 # 単体・GAS・権限（配置計算 14 / 背景 16 を含む）
 npm run test:transport   # 通信方式
 CDN_DIR=/path/to/node_modules npm run test:e2e   # Chromium（画像生成 11 を含む）
 ```
