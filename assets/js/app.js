@@ -1420,6 +1420,14 @@ const bgState = {
 };
 const BG_MAX_BYTES = 8 * 1024 * 1024;
 
+// 接続先の GAS が背景機能より古い（UNKNOWN_ACTION）場合は、原因が分かるメッセージにする
+function backgroundErrorMessage(err) {
+  if (err && err.code === 'UNKNOWN_ACTION') {
+    return '接続先の GAS が背景画像機能に対応していません（GAS の新しいバージョンのデプロイが必要です）';
+  }
+  return err && err.message ? err.message : String(err);
+}
+
 function bindBackgroundEvents() {
   document.getElementById('bgFileInput').addEventListener('change', onBackgroundFileSelected);
   document.getElementById('bgSaveButton').addEventListener('click', saveBackgroundSettings);
@@ -1510,7 +1518,7 @@ async function ensureBackgroundLoaded(store, force) {
     if (bgState.store !== store) return;
     bgState.view = null;
     bgState.image = null;
-    if (!handleAuthErrorIfAny(err)) document.getElementById('bgStatus').textContent = '背景を読み込めませんでした: ' + err.message;
+    if (!handleAuthErrorIfAny(err)) document.getElementById('bgStatus').textContent = '背景を読み込めませんでした: ' + backgroundErrorMessage(err);
   } finally {
     if (bgState.store === store) bgState.loading = false;
     drawBackgroundPreview();
@@ -1613,7 +1621,7 @@ async function saveBackgroundSettings() {
       showAlert('他の端末で背景が更新されています。最新の背景を読み込みました。必要なら選択し直して保存してください。', 'warning');
       await ensureBackgroundLoaded(store, true);
     } else {
-      showAlert('背景を保存できませんでした: ' + err.message, 'danger');
+      showAlert('背景を保存できませんでした: ' + backgroundErrorMessage(err), 'danger');
     }
   } finally {
     setProcessing(false);
@@ -1637,7 +1645,7 @@ async function clearBackgroundImage() {
   } catch (err) {
     if (handleAuthErrorIfAny(err)) return;
     if (err.code === 'REVISION_CONFLICT') await ensureBackgroundLoaded(store, true);
-    showAlert('背景を解除できませんでした: ' + err.message, 'danger');
+    showAlert('背景を解除できませんでした: ' + backgroundErrorMessage(err), 'danger');
   } finally {
     setProcessing(false);
     drawBackgroundPreview();
@@ -1699,7 +1707,7 @@ async function generateShiftImage() {
   } catch (err) {
     if (handleAuthErrorIfAny(err)) return;
     clearGeneratedImage();
-    errorEl.textContent = '画像を生成できませんでした: ' + err.message;
+    errorEl.textContent = '画像を生成できませんでした: ' + backgroundErrorMessage(err);
     errorEl.classList.remove('d-none');
   } finally {
     setProcessing(false);

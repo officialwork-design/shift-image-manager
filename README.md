@@ -686,3 +686,76 @@ npm test                 # 単体・GAS・権限（配置計算 17 / 背景 16 �
 npm run test:transport   # 通信方式
 CDN_DIR=/path/to/node_modules npm run test:e2e   # Chromium（画像生成 11 を含む）
 ```
+
+---
+
+# テスト環境への反映（背景画像機能）— 手順と影響範囲
+
+> 反映はご本人の承認後に実施する。本番 GAS / Spreadsheet / Drive / GitHub Pages には一切触れない。
+
+## 0. 「背景画像が変わらない」原因（2026-11-18 確認）
+
+| 確認項目 | 結果 |
+|---|---|
+| 表示中のページ | `dist-test/`（Phase 1.8 時点のビルド、`?v=20261116-p16`）。**背景設定 UI（`#bgSection`）・`image-generator.js` を含まない** |
+| 接続先 GAS | テスト用 WebApp `AKfycbwF8osF…`（バージョン 1 = 背景機能より前のコード）。`getBackground` は `UNKNOWN_ACTION` |
+| 白い背景・グレーのカード | 旧来の「写真プレビュー」欄。テスト用 GAS の `DRIVE_IMAGE_FOLDER_ID` が未設定（テスト画像未投入）のため全員が写真なし表示 |
+
+→ 背景機能はローカルにだけあり、**ページ・GAS のどちらにも反映されていない**ことが原因（コードの不具合ではない）。
+あわせて、`index.html` の `?v=` が一部古いままで、反映後もブラウザが古い `app.js` / `api.js` を使うおそれがあったため修正した
+（全ファイルの `?v=` を統一し、`tools/build-test-site.sh` がビルドごとの値に置き換える）。
+
+## 1. テスト用ページのビルドと起動（Mac）
+
+```bash
+# リポジトリで（テスト用 WebApp の URL を指定。本番 URL は拒否される）
+TEST_GAS_WEB_APP_URL='https://script.google.com/macros/s/<テスト用デプロイID>/exec' tools/build-test-site.sh
+cd dist-test && python3 -m http.server 8080      # → Chrome で http://localhost:8080/
+```
+
+- `dist-test/BUILD_INFO.txt` にコミット・ビルド日時・接続先が記録される。画面の版は `APP_CONFIG.VERSION`（`<commit>-<日時>-test`）。
+- OAuth の「承認済みの JavaScript 生成元」は `http://localhost:8080`（テスト用 OAuth クライアント）。ポートを変える場合は生成元の追加が必要。
+- 起動したターミナルはテスト中は閉じない。
+
+## 2. テスト用 GAS への反映（どちらか）
+
+| 方法 | 手順 |
+|---|---|
+| A. エディタに貼り付け | `tools/build-test-gas-bundle.sh` → `dist-gas-test/TestBundle.gs` の内容でテスト用 GAS のコードを置き換え、`appsscript.json` も同じ内容にして保存（`BUNDLE_INFO.txt` の sha256 で照合） |
+| B. clasp | `TEST_SCRIPT_ID=… TEST_SPREADSHEET_ID=… TEST_DRIVE_FOLDER_ID=… tools/clasp-test-push.sh`（本番 ID は拒否。**リポジトリ直下で clasp push しない**） |
+
+## 3. 権限の承認（drive.file の追加）
+
+1. テスト用 GAS のエディタで `backgroundSelfTest` を選び「実行」→「権限を確認」→ 作業アカウント →「許可」（**ご本人の操作**）
+2. 実行ログで `OAuth スコープ（トークン）` が OK になることを確認（Drive・シートには書き込まない）
+
+## 4. WebApp の新バージョン公開（URL を変えない）
+
+「デプロイ」→「デプロイを管理」→ テスト用デプロイ（`AKfycbwF8osF…`）の鉛筆 →「バージョン: 新バージョン」→「デプロイ」。
+新しいデプロイを作ると URL が変わり、ページの再ビルドが必要になるため、既存デプロイの編集で行う。
+
+## 5. 背景設定・確認手順（テスト用ページ）
+
+1. ADMIN でログイン → 店舗・日付を選択 →「背景画像・画像生成」欄が表示されること
+2. 背景画像（PNG / JPEG）を選択 → プレビュー →「背景・設定を保存」（初回はテスト用 Drive に「Shift Image Manager TEST Backgrounds」を自動作成）
+3. 「画像を生成」→ 1447 × 2048 のプレビュー →「PNG で保存」
+4. 店舗を切り替えて背景が店舗ごとに変わること、ブラウザ再読み込み後も残ること
+5. （任意）キャストのカード画像を表示する場合は、テスト用 Drive の画像フォルダを用意し ID管理の `DRIVE_IMAGE_FOLDER_ID` に設定
+
+## 6. 影響範囲
+
+| 対象 | 変更 | 影響 |
+|---|---|---|
+| テスト用ページ（`dist-test/`、Mac ローカル） | 作り直し | 背景設定 UI・画像生成が追加。既存のシフト編集は変更なし |
+| テスト用 GAS（コード・manifest） | 置き換え | API に `getBackground` / `saveBackground` / `clearBackground` / `getCastPhotos` を追加。既存 API は変更なし。`saveBackground` のみ本文 12MB まで |
+| テスト用 GAS（権限） | `drive.file` 追加 | 再承認が必要（アプリが作成したファイル・フォルダだけ書き込み可） |
+| テスト用 WebApp | 新バージョン | URL は不変 |
+| テスト用 Spreadsheet | 「背景設定」シートを追加（初回保存または初期シート生成時）。ID管理に 2 行追加（`SHEET_BACKGROUND` / `DRIVE_BACKGROUND_FOLDER_ID`） | シフトデータは変更しない |
+| テスト用 Drive | 「Shift Image Manager TEST Backgrounds」フォルダと背景画像 | テスト用アカウントの Drive のみ |
+| 本番（GAS / Spreadsheet / Drive / Pages） | **なし** | – |
+
+## 7. 戻し方
+
+- ページ: 以前の `dist-test` に戻す（または以前のコミットでビルドし直す）。
+- WebApp: 「デプロイを管理」で以前のバージョン（バージョン 1）を選び直す。
+- 背景: ADMIN の「背景を解除」（Drive のファイルは残る）。

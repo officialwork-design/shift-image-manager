@@ -213,6 +213,11 @@ test('E2E 画像生成: 背景アップロード・店舗別・自動配置・PN
       assert.equal(err, 'NAME_TOO_LONG');
     });
 
+    await t.test('接続先 GAS が背景機能に未対応（UNKNOWN_ACTION）の場合は原因を表示', async () => {
+      const msg = await page.evaluate(() => backgroundErrorMessage(Object.assign(new Error('Unknown action: getBackground'), { code: 'UNKNOWN_ACTION' })));
+      assert.match(msg, /GAS の新しいバージョンのデプロイが必要/);
+    });
+
     await t.test('Canvas 汚染: CORS の無い外部画像を直接描くと PNG 保存できない（data URL 方式の必要性）', async () => {
       const result = await page.evaluate(async () => {
         const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = 'https://drive.google.com/thumbnail?id=X&sz=w600'; });

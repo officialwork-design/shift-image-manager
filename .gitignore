@@ -2,3 +2,4 @@
 dist-test/
 deploy/test/*.local.*
 node_modules/
+dist-gas-test/

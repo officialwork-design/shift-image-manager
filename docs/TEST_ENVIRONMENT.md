@@ -118,3 +118,12 @@ GitHub Pages (officialwork-design.github.io)           テスト用ページ（d
 6. テスト用ページ（別リポジトリ・Pages）を削除
 
 本番には影響しない（共有している設定・データがないため）。
+
+
+## 背景画像機能の反映（2026-11-18 追記）
+
+- ページのビルド: `TEST_GAS_WEB_APP_URL=… tools/build-test-site.sh`（`?v=` をビルドごとに更新・`BUILD_INFO.txt`）
+- GAS の 1 ファイル版: `tools/build-test-gas-bundle.sh` → `dist-gas-test/TestBundle.gs`（エディタ貼り付け用）
+- 権限: `drive.file` 追加のため再承認 → `backgroundSelfTest()` で確認
+- WebApp: 既存デプロイを「新バージョン」で更新（URL 不変）
+- 詳細と影響範囲: README「テスト環境への反映（背景画像機能）」
