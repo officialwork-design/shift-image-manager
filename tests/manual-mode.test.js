@@ -187,7 +187,7 @@ test('写真登録: 新しいキャスト → castId を発行・テスト用写
 test('写真の紐付け: 名前で候補を検索 → castId で保存 → 再読み込みで登録済み写真・PNG 生成用の data URL を取得', () => {
   const h = testEnv();
   const reg = register(h, { castName: 'もも', image: photo() }).data;
-  const look = callPost(h, 'lookupCasts', { names: ['もも', 'テストあい', '未登録さん'] }, EDITOR);
+  const look = callPost(h, 'lookupCasts', { store: 'KABUKI', names: ['もも', 'テストあい', '未登録さん'] }, EDITOR);
   assert.equal(look.success, true, JSON.stringify(look));
   const [momo, ai, none] = look.data.results;
   assert.deepEqual(momo.candidates.map(c => c.castId), [reg.castId]);
@@ -218,7 +218,7 @@ test('同名キャスト: 既定では CAST_NAME_EXISTS・明示すれば別 cas
   assert.equal(dup.error.details.candidates[0].castId, first.castId);
   const second = register(h, { castName: 'もも', image: photo(410, 640), allowSameName: true }).data;
   assert.notEqual(second.castId, first.castId);
-  const look = callPost(h, 'lookupCasts', { names: ['もも'] }, EDITOR).data.results[0];
+  const look = callPost(h, 'lookupCasts', { store: 'KABUKI', names: ['もも'] }, EDITOR).data.results[0];
   assert.equal(look.candidates.length, 2);
   // 名前だけでは決めない: castId なしで保存した行は「要選択（ambiguous）」
   saveM(h, { expectedRevision: 0, rows: [{ castName: 'もも' }] });
@@ -268,7 +268,7 @@ test('写真登録: 形式・サイズの検証（Drive に書き込まない）
   const big = Buffer.concat([png(400, 627), Buffer.alloc(400 * 1024)]);
   const ok = register(h, { castName: 'もも', image: { dataBase64: b64(big), mimeType: 'image/png' } });
   assert.equal(ok.success, true, JSON.stringify(ok).slice(0, 200));
-  assert.equal(callPost(h, 'lookupCasts', { names: ['x'], pad: 'A'.repeat(300 * 1024) }, EDITOR).code, 'INVALID_REQUEST', '画像以外の操作は 200KB まで');
+  assert.equal(callPost(h, 'lookupCasts', { store: 'KABUKI', names: ['x'], pad: 'A'.repeat(300 * 1024) }, EDITOR).code, 'INVALID_REQUEST', '画像以外の操作は 200KB まで');
 });
 
 test('写真フォルダ: 本番の画像フォルダを保存先に指定すると拒否（書き込まない）', () => {

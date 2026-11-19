@@ -78,15 +78,16 @@
       if (!linked && list.length === 1) linked = list[0];
       if (linked) {
         return Object.assign(next, { castId: linked.castId, imageFileId: linked.imageFileId || '', castRevision: linked.revision || 0,
-          status: linked.imageFileId ? 'registered' : 'missing' });
+          photoSource: linked.source || '', status: linked.imageFileId ? 'registered' : 'missing' });
       }
-      return Object.assign(next, { castId: '', imageFileId: '', castRevision: 0, status: list.length > 1 ? 'ambiguous' : 'missing' });
+      return Object.assign(next, { castId: '', imageFileId: '', castRevision: 0, photoSource: '', status: list.length > 1 ? 'ambiguous' : 'missing' });
     },
 
     selectCandidate(row, castId) {
       const c = (row.candidates || []).find(x => x.castId === castId);
       if (!c) return Object.assign({}, row, { castId: '', imageFileId: '', castRevision: 0, status: (row.candidates || []).length > 1 ? 'ambiguous' : 'missing' });
-      return Object.assign({}, row, { castId: c.castId, imageFileId: c.imageFileId || '', castRevision: c.revision || 0, status: c.imageFileId ? 'registered' : 'missing' });
+      return Object.assign({}, row, { castId: c.castId, imageFileId: c.imageFileId || '', castRevision: c.revision || 0,
+        photoSource: c.source || '', status: c.imageFileId ? 'registered' : 'missing' });
     },
 
     // 保存前の検証。errors があれば保存しない
@@ -109,8 +110,15 @@
         if (r.status === 'ambiguous') errors.push(`${i + 1}行目「${this.cleanName(r.castName)}」: 同じ名前のキャストが複数います。写真を選んでください。`);
         if (r.status === 'checking') errors.push(`${i + 1}行目「${this.cleanName(r.castName)}」: 写真を確認中です。少し待ってから実行してください。`);
       });
-      const missing = rows.filter(r => r.status === 'missing' || (r.status === 'registered' && !r.imageFileId));
+      const missing = rows.filter(r => r.status === 'missing' || r.status === 'photo_error' || r.status === 'error' || (r.status === 'registered' && !r.imageFileId));
       return { count: rows.length, missingCount: missing.length, missingNames: missing.map(r => this.cleanName(r.castName)), errors };
+    },
+
+    // 写真の取得に失敗したファイルの行は「取得失敗」（写真なしのカードで生成できる）
+    markPhotoFailures(rows, failedIds) {
+      const failed = (failedIds || []).map(f => (typeof f === 'string' ? f : f.fileId));
+      return rows.map(r => (r.status === 'registered' && r.imageFileId && failed.indexOf(r.imageFileId) !== -1
+        ? Object.assign({}, r, { status: 'photo_error' }) : r));
     },
 
     storeLabel(store) {
@@ -233,7 +241,6 @@ const ManualMode = (() => {
       if (data.store !== store || data.date !== date) throw new Error('取得したデータの店舗・日付が選択と一致しません。');
       if (m.store !== store || m.date !== date) return;
       applySaved(data);
-      if (data.folderWarning) showAlert(data.folderWarning, 'warning');
       await refreshLinks();
     } catch (err) {
       if (!handleAuthErrorIfAny(err)) showAlert('手動シフトを読み込めませんでした: ' + manualErrorMessage(err), 'danger');
@@ -246,6 +253,7 @@ const ManualMode = (() => {
   }
 
   function applySaved(data) {
+    m.folderWarning = data.folderWarning || '';
     m.revision = data.revision || 0;
     m.rows = S.fromServer(data.rows);
     m.savedSignature = S.signature(m.rows);
@@ -291,7 +299,7 @@ const ManualMode = (() => {
   }
 
   // ===== 名前 → 写真の紐付け =====
-  async function refreshLinks(keys) {
+  async function refreshLinks(keys, refresh) {
     const targets = m.rows.filter(r => !keys || keys.indexOf(r.key) !== -1).filter(r => S.cleanName(r.castName));
     if (!targets.length) { render(); return; }
     const mySeq = ++m.lookupSeq;
@@ -299,12 +307,14 @@ const ManualMode = (() => {
     render();
     const names = targets.map(r => S.cleanName(r.castName)).filter((n, i, a) => a.indexOf(n) === i);
     try {
-      const res = await Api.manual.lookup(names);
+      const res = await Api.manual.lookup(names, m.store, !!refresh);
       if (mySeq !== m.lookupSeq) return;   // より新しい検索がある
+      m.folderWarning = res.folderWarning || '';
       const byName = {};
       res.results.forEach(item => { byName[item.name] = item.candidates; });
       m.rows = m.rows.map(r => (targets.indexOf(r) !== -1 ? S.applyCandidates(r, byName[S.cleanName(r.castName)] || []) : r));
-      await loadThumbnails();
+      const failed = await loadThumbnails();
+      m.rows = S.markPhotoFailures(m.rows, failed);
     } catch (err) {
       if (mySeq !== m.lookupSeq) return;
       m.rows.forEach(r => { if (r.status === 'checking') r.status = 'error'; });
@@ -321,7 +331,7 @@ const ManualMode = (() => {
       if (c.imageFileId && !m.photoCache[c.imageFileId] && ids.indexOf(c.imageFileId) === -1) ids.push(c.imageFileId);
     });
     if (!ids.length) return [];
-    const res = await Api.manual.photos(ids.slice(0, 40));
+    const res = await Api.manual.photos(ids.slice(0, 40), m.store);
     Object.assign(m.photoCache, res.photos || {});
     return res.failed || [];
   }
@@ -492,6 +502,7 @@ const ManualMode = (() => {
     try {
       setProcessing(true, '写真を取得中');
       const failed = await loadThumbnails();
+      m.rows = S.markPhotoFailures(m.rows, failed);
       setProcessing(true, '画像を生成中');
       const images = {};
       const ids = m.rows.map(r => r.imageFileId).filter((id, i, a) => id && a.indexOf(id) === i);
@@ -530,17 +541,18 @@ const ManualMode = (() => {
   // ===== 描画 =====
   function statusBadge(r) {
     switch (r.status) {
-      case 'registered': return r.castId.indexOf('drive:') === 0
-        ? '<span class="badge text-bg-success">写真あり（画像フォルダ）</span>' : '<span class="badge text-bg-success">写真あり</span>';
+      case 'registered': return r.photoSource === 'store' ? '<span class="badge text-bg-success">写真あり（店舗フォルダ）</span>'
+        : r.castId.indexOf('drive:') === 0 ? '<span class="badge text-bg-success">写真あり（画像フォルダ）</span>' : '<span class="badge text-bg-success">写真あり（登録写真）</span>';
       case 'ambiguous': return '<span class="badge text-bg-warning">同名あり・写真を選択</span>';
-      case 'checking': return '<span class="badge text-bg-light border">確認中…</span>';
-      case 'error': return '<span class="badge text-bg-secondary">確認できません</span>';
+      case 'checking': return '<span class="badge text-bg-light border">写真を取得中…</span>';
+      case 'error': return '<span class="badge text-bg-secondary">写真を確認できません（再検索してください）</span>';
+      case 'photo_error': return '<span class="badge text-bg-secondary">写真の取得に失敗</span>';
       default: return '<span class="badge text-bg-danger">写真未登録</span>';
     }
   }
 
   function candidateLabel(c) {
-    const where = c.source === 'folder' ? '画像フォルダ' : `登録 ${c.updatedAt || ''}`;
+    const where = c.source === 'store' ? `店舗フォルダ「${c.fileName || c.castName}」` : c.source === 'folder' ? '画像フォルダ' : `登録写真 ${c.updatedAt || ''}`;
     return `${c.castName}（${where}・${c.castId.slice(-6)}）`;
   }
 
@@ -592,8 +604,11 @@ const ManualMode = (() => {
     $('manualSaveButton').disabled = !m.loaded || !dirty;
     const sum = S.summarize(m.rows);
     $('manualSummary').textContent = m.loaded
-      ? `${m.rows.length}人${sum.missingCount ? ` / 写真未登録 ${sum.missingCount}人` : ''}${m.rows.some(r => r.status === 'ambiguous') ? ' / 写真の選択が必要な人がいます' : ''}`
+      ? `${m.rows.length}人${sum.missingCount ? ` / 写真なし ${sum.missingCount}人` : ''}${m.rows.some(r => r.status === 'ambiguous') ? ' / 写真の選択が必要な人がいます' : ''}`
       : '';
+    const warn = $('manualFolderWarning');
+    warn.textContent = m.loaded ? (m.folderWarning || '') : '';
+    warn.classList.toggle('d-none', !(m.loaded && m.folderWarning));
   }
 
   function manualErrorMessage(err) {
@@ -606,6 +621,11 @@ const ManualMode = (() => {
     document.querySelectorAll('.js-manual-store').forEach(btn => btn.addEventListener('click', () => selectStore(btn.dataset.store)));
     $('manualDate').addEventListener('change', onDateChange);
     $('manualReloadButton').addEventListener('click', reload);
+    $('manualPhotoRefreshButton').addEventListener('click', () => {
+      if (!m.loaded || m.busy || state.isProcessing) return;
+      m.photoCache = {};
+      refreshLinks(null, true);
+    });
     $('manualSaveButton').addEventListener('click', save);
     $('manualAddButton').addEventListener('click', onAdd);
     $('manualAddName').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); onAdd(); } });

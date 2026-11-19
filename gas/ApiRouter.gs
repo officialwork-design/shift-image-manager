@@ -180,6 +180,7 @@ const ApiRouter = {
       case 'resetShiftFromSource':
         return ShiftService.resetShiftFromSource(payload.store, payload.date, payload.expectedRevision, payload.confirmation, ctx);
       case 'refreshImageCache':
+        StoreImageService.clearCache();
         return ImageService.refreshCache();
       case 'getBackground':
         return BackgroundService.getBackground(payload.store, { includeImage: payload.includeImage !== false });
@@ -194,9 +195,9 @@ const ApiRouter = {
       case 'saveManualShift':
         return ManualShiftService.saveManualShift(payload, ctx);
       case 'lookupCasts':
-        return ManualShiftService.lookupCasts(payload.names);
+        return ManualShiftService.lookupCasts(payload.names, payload.store, { refresh: payload.refresh === true });
       case 'getManualPhotos':
-        return ManualShiftService.getManualPhotos(payload.fileIds);
+        return ManualShiftService.getManualPhotos(payload.fileIds, payload.store);
       case 'registerCastPhoto':
         return ManualShiftService.registerCastPhoto(payload, ctx);
       case 'checkImages':

@@ -116,8 +116,9 @@ const Api = (() => {
     get: (store, date) => call('getManualShift', { store, date }),
     // rows: [{ castName, castId }]（配列の順番が並び順）
     save: (store, date, expectedRevision, rows) => call('saveManualShift', { store, date, expectedRevision, rows }, { requestId: newRequestId() }),
-    lookup: names => call('lookupCasts', { names }),
-    photos: fileIds => call('getManualPhotos', { fileIds }, { timeoutMs: 180000 }),
+    // store: 店舗（店舗別の写真フォルダを検索）。refresh=true でフォルダの一覧を読み直す
+    lookup: (names, store, refresh) => call('lookupCasts', Object.assign({ names, store }, refresh ? { refresh: true } : {}), { timeoutMs: 120000 }),
+    photos: (fileIds, store) => call('getManualPhotos', { fileIds, store }, { timeoutMs: 180000 }),
     // image: { dataBase64, mimeType, fileName }。castId ありは差し替え（expectedRevision 必須）
     registerPhoto: (castName, image, options) => call('registerCastPhoto', Object.assign({ castName, image }, options || {}),
       { requestId: newRequestId(), timeoutMs: 180000 })

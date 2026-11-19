@@ -12,6 +12,9 @@
  * - 写真の登録は Drive REST（drive.file）でアプリ専用のフォルダに保存する（背景と同じ方式）。
  *     DRIVE_CAST_PHOTO_FOLDER_ID が未設定のとき、テスト環境に限りフォルダを自動作成する（本番は設定必須）。
  * - 写真は data URL で返す（Canvas を汚染させず PNG 保存できるようにする）。
+ * - 店舗別キャスト画像フォルダ（StoreImageService。DRIVE_KABUKI/AKIBA_CAST_FOLDER_ID）のファイルも候補にする（castId = drive:<fileId>）。
+ *   候補の優先: 店舗フォルダ ＋ この画面で登録したキャスト。店舗フォルダが未設定の店舗だけ既存の画像フォルダも使う。
+ *   同じ名前に候補が2つ以上あれば画面で選ぶ（名前だけで写真を決めない）。
  */
 const MANUAL_SHIFT_HEADERS = ['store', 'date', 'sortOrder', 'castName', 'castId', 'imageFileId',
   'updatedAt', 'revision', 'rowCount', 'updatedBy'];
@@ -38,12 +41,11 @@ const ManualShiftService = {
     const target = Utils.requireStoreAndIsoDate(store, date);
     const sheet = this.findSheet_(this.manualSheetName_(), MANUAL_SHIFT_HEADERS);
     const current = sheet ? this.readCurrent_(sheet, target.store, target.date) : { revision: 0, rows: [], updatedAt: '' };
-    const registry = this.readRegistry_();
-    const folder = this.readFolderImages_();
+    const src = this.sources_(target.store);
     const rows = current.rows.map(r => Object.assign({ sortOrder: r.sortOrder, castName: r.castName, castId: r.castId, imageFileId: r.imageFileId },
-      { photo: this.resolvePhoto_(r.castId, r.castName, registry, folder) }));
+      { photo: this.resolvePhoto_(r.castId, r.castName, src) }));
     return { store: target.store, date: target.date, revision: current.revision, updatedAt: current.updatedAt, rows,
-      folderWarning: folder.warning || '' };
+      folderWarning: src.warning, storeFolderConfigured: src.store.configured };
   },
 
   // ===== 手動シフトの保存 =====
@@ -57,16 +59,15 @@ const ManualShiftService = {
     if (p.rows.length > MANUAL_LIMITS.MAX_CASTS) {
       throw Utils.apiError('TOO_MANY_CASTS', 'キャストは ' + MANUAL_LIMITS.MAX_CASTS + ' 人までです');
     }
-    const registry = this.readRegistry_();
-    const folder = this.readFolderImages_();
+    const src = this.sources_(target.store);
     const records = p.rows.map((row, index) => {
       const castName = this.requireCastName_(row && row.castName, index);
       const castId = String((row && row.castId) || '').trim();
       let imageFileId = '';
       if (castId) {
-        const cand = this.findCandidateById_(castId, registry, folder);
+        const cand = this.findCandidateById_(castId, src);
         if (!cand) throw Utils.apiError('UNKNOWN_CAST', (index + 1) + '行目: キャストID が見つかりません（' + castName + '）。写真を選び直してください', { index });
-        if (!this.candidateMatchesName_(cand, castName, folder)) {
+        if (!this.candidateMatchesName_(cand, castName, src)) {
           throw Utils.apiError('CAST_MISMATCH', (index + 1) + '行目: 名前とキャストID が一致しません（' + castName + '）', { index });
         }
         imageFileId = cand.imageFileId;
@@ -113,30 +114,32 @@ const ManualShiftService = {
   },
 
   // ===== 名前 → 写真の候補（castId 単位） =====
-  lookupCasts(names) {
+  // store: 店舗（必須）。refresh=true で店舗フォルダの一覧を Drive から読み直す
+  lookupCasts(names, store, options) {
     if (!Array.isArray(names)) throw Utils.apiError('INVALID_REQUEST', 'names を配列で指定してください');
     if (names.length > MANUAL_LIMITS.MAX_LOOKUP_NAMES) throw Utils.apiError('INVALID_REQUEST', '一度に検索できる名前は ' + MANUAL_LIMITS.MAX_LOOKUP_NAMES + ' 件までです');
-    const registry = this.readRegistry_();
-    const folder = this.readFolderImages_();
+    const s = BackgroundService.requireStore_(store);
+    const src = this.sources_(s, options);
     const results = names.map(raw => {
       const name = String(raw || '').trim().slice(0, MANUAL_LIMITS.MAX_NAME_LENGTH);
-      return { name, candidates: name ? this.candidatesFor_(name, registry, folder) : [] };
+      return { name, candidates: name ? this.candidatesFor_(name, src) : [] };
     });
-    return { results, folderWarning: folder.warning || '' };
+    return { store: s, results, folderWarning: src.warning, storeFolderConfigured: src.store.configured,
+      storeImageCount: src.store.files.length };
   },
 
   // ===== 画像生成用の写真（data URL）。登録済みの写真ファイルだけ返す =====
-  getManualPhotos(fileIds) {
+  getManualPhotos(fileIds, store) {
     if (!Array.isArray(fileIds)) throw Utils.apiError('INVALID_REQUEST', 'fileIds を配列で指定してください');
     const ids = fileIds.map(id => String(id || '').trim()).filter((id, i, a) => id && a.indexOf(id) === i);
     if (ids.length > BACKGROUND_LIMITS.MAX_PHOTOS) {
       throw Utils.apiError('TOO_MANY_PHOTOS', '写真の数が上限（' + BACKGROUND_LIMITS.MAX_PHOTOS + '）を超えています');
     }
-    const registry = this.readRegistry_();
-    const folder = this.readFolderImages_();
+    const src = this.sources_(store ? BackgroundService.requireStore_(store) : '');
     const known = {};
-    registry.forEach(e => { if (e.imageFileId) known[e.imageFileId] = true; });
-    folder.files.forEach(f => { known[f.fileId] = true; });
+    src.registry.forEach(e => { if (e.imageFileId) known[e.imageFileId] = true; });
+    src.folder.files.forEach(f => { known[f.fileId] = true; });
+    src.store.files.forEach(f => { known[f.fileId] = true; });
     const photos = {};
     const failed = [];
     ids.forEach(id => {
@@ -277,40 +280,56 @@ const ManualShiftService = {
     }
   },
 
-  candidatesFor_(name, registry, folder) {
+  // 写真の参照元（登録キャスト・既存の画像フォルダ・店舗フォルダ）
+  sources_(store, options) {
+    const registry = this.readRegistry_();
+    const folder = this.readFolderImages_();
+    const storeImgs = store ? StoreImageService.getImages(store, options) : { configured: false, files: [], keyMap: {}, warning: '' };
+    const warning = [storeImgs.warning, folder.warning].filter(Boolean).join(' / ');
+    return { registry, folder, store: storeImgs, warning };
+  },
+
+  candidatesFor_(name, src) {
+    const registry = src.registry, folder = src.folder;
     const key = this.nameKey_(name);
+    const fromStore = StoreImageService.findFiles(src.store, name).map(f => ({
+      castId: 'drive:' + f.fileId, castName: f.name, imageFileId: f.fileId, revision: 0, source: 'store', fileName: f.name }));
     const fromRegistry = registry.filter(e => e.nameKey === key).map(e => this.registryView_(e));
-    if (fromRegistry.length) return fromRegistry;
+    if (fromStore.length || fromRegistry.length) return fromStore.concat(fromRegistry);
+    // 店舗フォルダが設定されている店舗では、店舗共通の既存画像フォルダは使わない（他店舗のキャストの写真を出さない）
+    if (src.store.configured && !src.store.error) return [];
     const fileId = ImageService.findImageIdForCast(folder.imageMap, name);
     if (!fileId) return [];
     const file = folder.files.find(f => f.fileId === fileId);
     return [{ castId: 'drive:' + fileId, castName: name, imageFileId: fileId, revision: 0, source: 'folder', fileName: file ? file.name : '' }];
   },
 
-  findCandidateById_(castId, registry, folder) {
+  findCandidateById_(castId, src) {
     if (castId.indexOf('drive:') === 0) {
       const fileId = castId.slice(6);
-      const file = folder.files.find(f => f.fileId === fileId);
+      if (StoreImageService.hasFile(src.store, fileId)) return { castId, imageFileId: fileId, source: 'store' };
+      const file = src.folder.files.find(f => f.fileId === fileId);
       if (!file) return null;
       return { castId, imageFileId: fileId, source: 'folder' };
     }
-    const e = registry.find(r => r.castId === castId);
+    const e = src.registry.find(r => r.castId === castId);
     return e ? { castId, imageFileId: e.imageFileId, nameKey: e.nameKey, source: 'registry' } : null;
   },
 
   // フォルダ画像は「その名前で検索すると同じファイルになる」こと、登録キャストは名前キーの一致で確認する
-  candidateMatchesName_(cand, castName, folder) {
-    if (cand.source === 'folder') return ImageService.findImageIdForCast(folder.imageMap, castName) === cand.imageFileId;
+  candidateMatchesName_(cand, castName, src) {
+    if (cand.source === 'store') return StoreImageService.findFiles(src.store, castName).some(f => f.fileId === cand.imageFileId);
+    if (cand.source === 'folder') return ImageService.findImageIdForCast(src.folder.imageMap, castName) === cand.imageFileId;
     return cand.nameKey === this.nameKey_(castName);
   },
 
-  resolvePhoto_(castId, castName, registry, folder) {
+  resolvePhoto_(castId, castName, src) {
     if (castId) {
-      const cand = this.findCandidateById_(castId, registry, folder);
-      if (!cand || !this.candidateMatchesName_(cand, castName, folder)) return { status: 'missing', imageFileId: '', reason: 'キャストID が見つかりません' };
+      const cand = this.findCandidateById_(castId, src);
+      if (!cand || !this.candidateMatchesName_(cand, castName, src)) return { status: 'missing', imageFileId: '', reason: 'キャストID が見つかりません' };
       return { status: cand.imageFileId ? 'registered' : 'missing', imageFileId: cand.imageFileId, source: cand.source };
     }
-    const candidates = this.candidatesFor_(castName, registry, folder);
+    const candidates = this.candidatesFor_(castName, src);
     if (candidates.length > 1) return { status: 'ambiguous', imageFileId: '', candidates };
     if (candidates.length === 1) return { status: 'unlinked', imageFileId: '', candidates };
     return { status: 'missing', imageFileId: '' };

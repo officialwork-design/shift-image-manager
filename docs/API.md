@@ -62,8 +62,8 @@
 | getCastPhotos | ADMIN / EDITOR | **新規（背景）** | 画像生成用: 出勤キャスト（並び順・休み除外）と写真（data URL） |
 | getManualShift | ADMIN / EDITOR | **新規（手動）** | 手動シフト `{ store, date }` → `{ revision, rows[{ sortOrder, castName, castId, imageFileId, photo }] }`。SIFT_DATA は使わない |
 | saveManualShift | ADMIN / EDITOR | **新規（手動）** | `{ store, date, expectedRevision, rows[{ castName, castId? }] }`（配列順 = 並び順・40人まで）。revision 競合は REVISION_CONFLICT。LockService |
-| lookupCasts | ADMIN / EDITOR | **新規（手動）** | `{ names[] }` → 名前ごとの写真候補 `[{ castId, castName, imageFileId, revision, source }]`（登録キャスト優先、無ければ画像フォルダ） |
-| getManualPhotos | ADMIN / EDITOR | **新規（手動）** | `{ fileIds[] }` → `{ photos{ id: dataURL }, failed[] }`。登録済み写真・画像フォルダ内のファイル以外は返さない |
+| lookupCasts | ADMIN / EDITOR | **新規（手動）** | `{ store, names[], refresh? }` → 名前ごとの写真候補 `[{ castId, castName, imageFileId, revision, source }]`（店舗フォルダ＋登録キャスト。店舗フォルダ未設定の店舗のみ共通画像フォルダ） |
+| getManualPhotos | ADMIN / EDITOR | **新規（手動）** | `{ store, fileIds[] }` → `{ photos{ id: dataURL }, failed[] }`。登録済み写真・画像フォルダ内のファイル以外は返さない |
 | registerCastPhoto | ADMIN / EDITOR | **新規（手動）** | `{ castName, image, castId?, expectedRevision?, allowSameName? }`。写真を drive.file で保存しキャストID を発行／差し替え。同名は CAST_NAME_EXISTS。本文 12MB まで |
 
 ### 背景画像・画像生成 API（詳細は docs/IMAGE_LAYOUT.md）

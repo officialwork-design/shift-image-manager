@@ -8,7 +8,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
-const { setup, callPost } = require('./fixtures');
+const { setup, callPost, FOLDERS } = require('./fixtures');
 const { makeToken, USERS } = require('./jwt-test-utils');
 const { makePng, pngSize } = require('./png-util');
 
@@ -30,16 +30,28 @@ const DATE = '2026-11-20';
 const otherTerminal = () => ({ auth: { idToken: makeToken({ sub: USERS.editor.sub, email: USERS.editor.email }) } });
 
 const color = c => () => c;
+const SEI = [90, 200, 220];
 const CHOCO = [230, 80, 140], SUZU = [60, 120, 220], RUN = [40, 180, 120], MOMO = [250, 160, 30], MOMO2 = [20, 20, 160];
 const PHOTO = {
   IMG_CHOCO: makePng(300, 400, color(CHOCO)), IMG_SUZU: makePng(400, 300, color(SUZU)), IMG_HIME: makePng(300, 400, color([240, 170, 40])),
-  IMG_PREP: makePng(300, 400, color([150, 150, 150])), IMG_RUN: makePng(300, 400, color(RUN)), IMG_MUGI: makePng(500, 500, color([120, 60, 200]))
+  IMG_PREP: makePng(300, 400, color([150, 150, 150])), IMG_RUN: makePng(300, 400, color(RUN)), IMG_MUGI: makePng(500, 500, color([120, 60, 200])),
+  // 店舗別フォルダ（歌舞伎・秋葉原）のカード画像
+  K_CHOCO: makePng(300, 400, color(CHOCO)), K_SUZU: makePng(400, 300, color(SUZU)), K_RUN: makePng(300, 400, color(RUN)),
+  A_SEI: makePng(300, 400, color(SEI))
+};
+const K_FOLDER = 'E2E_KABUKI_CAST_FOLDER_000000';
+const A_FOLDER = 'E2E_AKIBA_CAST_FOLDER_0000000';
+const STORE_FOLDERS = {
+  [K_FOLDER]: { files: [{ id: 'K_CHOCO', name: 'ちょこ.png' }, { id: 'K_SUZU', name: 'すず.png' }, { id: 'K_RUN', name: 'るん.png' }] },
+  [A_FOLDER]: { files: [{ id: 'A_SEI', name: 'せい.png' }] }
 };
 
 function newHarness() {
   const fakeDrive = { folders: { [BG_FOLDER]: { name: 'E2E backgrounds' }, [CAST_FOLDER]: { name: 'E2E cast photos' } }, files: {}, seq: 0, photos: {} };
   Object.keys(PHOTO).forEach(id => { fakeDrive.photos[id] = { mimeType: 'image/png', bytes: PHOTO[id] }; });
-  const h = setup({ realTime: true, context: { fakeDrive } });
+  const h = setup({ realTime: true, context: { fakeDrive, driveFolders: Object.assign({}, FOLDERS, STORE_FOLDERS) } });
+  h.props.DRIVE_KABUKI_CAST_FOLDER_ID = K_FOLDER;
+  h.props.DRIVE_AKIBA_CAST_FOLDER_ID = A_FOLDER;
   h.props.DRIVE_BACKGROUND_FOLDER_ID = BG_FOLDER;
   h.props.DRIVE_CAST_PHOTO_FOLDER_ID = CAST_FOLDER;   // 本番構成（APP_ENV なし）なので保存先は明示設定
   return h;
@@ -183,11 +195,11 @@ test('E2E 手動モード: 店舗ボタン・店舗別背景・手入力・保�
       assert.match(await page.textContent('#manualSaveState'), /未保存の変更あり/);
     });
 
-    await t.test('登録済み写真の自動表示（画像フォルダの ちょこ・すず・るん）／未登録は明示', async () => {
+    await t.test('登録済み写真の自動表示（店舗フォルダの ちょこ・すず・るん）／未登録は明示', async () => {
       assert.deepEqual(await statuses(page), ['missing', 'registered', 'registered', 'registered']);
       assert.match(await page.textContent('#manualList .manual-row:nth-child(1)'), /写真未登録/);
       assert.match(await page.getAttribute('#manualList .manual-row:nth-child(2) img.manual-thumb', 'src'), /^data:image\/png;base64,/);
-      assert.match(await page.textContent('#manualSummary'), /4人 \/ 写真未登録 1人/);
+      assert.match(await page.textContent('#manualSummary'), /4人 \/ 写真なし 1人/);
       await shot(page, '01_manual_input');
     });
 
@@ -197,8 +209,8 @@ test('E2E 手動モード: 店舗ボタン・店舗別背景・手入力・保�
       assert.match(await page.textContent('#alertArea'), /歌舞伎 \/ 2026-11-20 を保存しました（4人）/);
       const sheet = h.ss.getSheetByName('手動シフト');
       assert.deepEqual(sheet.rows.slice(1).map(r => [r[0], r[1], r[2], r[3], r[4]]), [
-        ['KABUKI', DATE, '1', 'もも', ''], ['KABUKI', DATE, '2', 'ちょこ', 'drive:IMG_CHOCO'],
-        ['KABUKI', DATE, '3', 'すず', 'drive:IMG_SUZU'], ['KABUKI', DATE, '4', 'るん', 'drive:IMG_RUN']]);
+        ['KABUKI', DATE, '1', 'もも', ''], ['KABUKI', DATE, '2', 'ちょこ', 'drive:K_CHOCO'],
+        ['KABUKI', DATE, '3', 'すず', 'drive:K_SUZU'], ['KABUKI', DATE, '4', 'るん', 'drive:K_RUN']]);
       await page.reload();
       await login(page); await waitIdle(page);
       await setDate(page, DATE);
@@ -316,6 +328,33 @@ test('E2E 手動モード: 店舗ボタン・店舗別背景・手入力・保�
         }
       }
       await page.click('#manualReloadButton'); await waitIdle(page);   // 破棄して保存済みに戻す（confirm は自動で OK）
+    });
+
+    await t.test('秋葉原「せい」: 店舗フォルダの写真を自動表示 → 秋葉原の背景で生成・店舗を戻すと歌舞伎の写真', async () => {
+      await clickStore(page, '秋葉原', 'AKIBA');
+      await page.evaluate(() => { ManualMode.state.rows = []; });
+      await addByEnter(page, 'せい');
+      await addByEnter(page, 'ちょこ');
+      assert.deepEqual(await statuses(page), ['registered', 'missing'], '秋葉原のフォルダに ちょこ は無い');
+      assert.match(await page.textContent('#manualList .manual-row:nth-child(1)'), /写真あり（店舗フォルダ）/);
+      const c = await generate(page);
+      assert.equal(c.disabled, false, c.errors);
+      assert.deepEqual(await cellCenter(page, 2, 0), SEI);
+      assert.deepEqual(await pixel(page, 5, 5), [210, 240, 255], '秋葉原の背景');
+      await page.click('#manualReloadButton'); await waitIdle(page);
+      await clickStore(page, '歌舞伎', 'KABUKI');
+    });
+
+    await t.test('写真を再検索: フォルダに追加した写真を読み直して表示', async () => {
+      await clickStore(page, '秋葉原', 'AKIBA');
+      await addByEnter(page, 'みな');
+      assert.equal((await statuses(page)).slice(-1)[0], 'missing');
+      STORE_FOLDERS[A_FOLDER].files.push({ id: 'A_MINA', name: 'みな.png' });
+      h.fakeDrive.photos.A_MINA = { mimeType: 'image/png', bytes: makePng(300, 400, color([10, 120, 10])) };
+      await page.click('#manualPhotoRefreshButton'); await waitIdle(page);
+      assert.equal((await statuses(page)).slice(-1)[0], 'registered');
+      await page.click('#manualReloadButton'); await waitIdle(page);
+      await clickStore(page, '歌舞伎', 'KABUKI');
     });
 
     await t.test('自動モードへの影響なし: SIFT_DATA・シフト編集は不変／自動モードに切り替えて従来どおり表示', async () => {

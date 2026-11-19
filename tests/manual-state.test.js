@@ -78,3 +78,14 @@ test('店舗の表示名', () => {
   assert.equal(S.storeLabel('KABUKI'), '歌舞伎');
   assert.equal(S.storeLabel('AKIBA'), '秋葉原');
 });
+
+test('写真の取得失敗: 該当ファイルの行だけ「取得失敗」・写真なしとして数える・店舗フォルダの由来を保持', () => {
+  const a = S.applyCandidates(S.newRow('もも'), [{ castId: 'drive:K1', castName: 'もも', imageFileId: 'K1', source: 'store' }]);
+  const b = S.applyCandidates(S.newRow('ちょこ'), [{ castId: 'drive:K2', castName: 'ちょこ', imageFileId: 'K2', source: 'store' }]);
+  assert.equal(a.photoSource, 'store');
+  const rows = S.markPhotoFailures([a, b], [{ fileId: 'K2', reason: 'UNAVAILABLE' }]);
+  assert.deepEqual(rows.map(r => r.status), ['registered', 'photo_error']);
+  assert.equal(rows[1].castId, 'drive:K2', '紐付けは保持（保存できる）');
+  assert.equal(S.summarize(rows).missingCount, 1);
+  assert.deepEqual(S.summarize(rows).errors, [], '取得失敗でも生成はできる（仮カード）');
+});
