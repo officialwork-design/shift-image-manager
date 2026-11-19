@@ -112,6 +112,23 @@ const AccessControlService = {
     });
   },
 
+  countActiveAdmins_(list) {
+    return list.entries.filter(e => e.valid && e.enabled && e.role === 'ADMIN' &&
+      list.duplicateSubs.indexOf(e.googleSub) === -1).length;
+  },
+
+  // 登録状況の確認（エディタ・メニュー用。sub は末尾4桁のみ表示）
+  summary() {
+    const list = this.readList_();
+    return {
+      total: list.entries.length,
+      activeAdmins: this.countActiveAdmins_(list),
+      activeEditors: list.entries.filter(e => e.valid && e.enabled && e.role === 'EDITOR').length,
+      invalid: list.entries.filter(e => !e.valid).map(e => ({ sub: '…' + e.googleSub.slice(-4), problem: e.problem })),
+      duplicateSubs: list.duplicateSubs.map(sub => '…' + sub.slice(-4))
+    };
+  },
+
   // ===== スプレッドシートのメニューから実行する登録（API からは呼べない） =====
   addEntry(sub, email, role, note) {
     const s = String(sub || '').trim();
@@ -121,6 +138,10 @@ const AccessControlService = {
     return ShiftService.withLock_(() => {
       const list = this.readList_();
       if (list.entries.some(e => e.googleSub === s)) throw Utils.apiError('DUPLICATE_SUB', 'この googleSub は登録済みです');
+      // 有効な ADMIN がいない間は ADMIN 以外を登録させない（管理者 0 人の状態で運用を始めない）
+      if (r !== 'ADMIN' && this.countActiveAdmins_(list) === 0) {
+        throw Utils.apiError('ADMIN_REQUIRED', '有効な ADMIN がいません。最初の利用者は ADMIN で登録してください');
+      }
       const config = ConfigService.getConfig();
       const sheet = SpreadsheetService.getSchemaSheet(config.SHEET_ACCESS_CONTROL || DEFAULT_CONFIG.SHEET_ACCESS_CONTROL, ACCESS_CONTROL_HEADERS);
       const now = Utils.now();
@@ -142,4 +163,28 @@ function accessControlAddUser() {
   const result = AccessControlService.addEntry(sub.getResponseText(), email.getResponseText(), role.getResponseText(), '');
   showMenuMessage_('アクセス権限の追加', '登録しました: ' + result.role);
   return result;
+}
+
+// スクリプトエディタから登録する場合（スプレッドシートに紐付いていない GAS ではメニューが使えないため）:
+//   Script Properties に ACCESS_ADD_SUB（利用者ID・数字のみ）/ ACCESS_ADD_EMAIL / ACCESS_ADD_ROLE（ADMIN か EDITOR）を設定して実行。
+//   成功・失敗にかかわらず、この3つのキーは実行後に削除する（登録内容がプロパティに残らないように）。
+function accessControlAddFromProperties() {
+  const props = PropertiesService.getScriptProperties();
+  const keys = ['ACCESS_ADD_SUB', 'ACCESS_ADD_EMAIL', 'ACCESS_ADD_ROLE'];
+  const v = keys.map(k => String(props.getProperty(k) || '').trim());
+  try {
+    if (!v[0] || !v[2]) throw Utils.apiError('INVALID_INPUT', 'ACCESS_ADD_SUB と ACCESS_ADD_ROLE を Script Properties に設定してから実行してください');
+    const result = AccessControlService.addEntry(v[0], v[1], v[2], 'editor');
+    const summary = AccessControlService.summary();
+    console.log(JSON.stringify({ added: { sub: '…' + result.sub.slice(-4), role: result.role }, summary }, null, 2));
+    return { added: result, summary };
+  } finally {
+    keys.forEach(k => props.deleteProperty(k));
+  }
+}
+
+function accessControlSummary() {
+  const summary = AccessControlService.summary();
+  console.log(JSON.stringify(summary, null, 2));
+  return summary;
 }

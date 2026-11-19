@@ -698,7 +698,7 @@ CDN_DIR=/path/to/node_modules npm run test:e2e   # Chromium（画像生成 11 �
 | 確認項目 | 結果 |
 |---|---|
 | 表示中のページ | `dist-test/`（Phase 1.8 時点のビルド、`?v=20261116-p16`）。**背景設定 UI（`#bgSection`）・`image-generator.js` を含まない** |
-| 接続先 GAS | テスト用 WebApp `AKfycbwF8osF…`（バージョン 1 = 背景機能より前のコード）。`getBackground` は `UNKNOWN_ACTION` |
+| 接続先 GAS | テスト用 WebApp（バージョン 1 = 背景機能より前のコード）。`getBackground` は `UNKNOWN_ACTION` |
 | 白い背景・グレーのカード | 旧来の「写真プレビュー」欄。テスト用 GAS の `DRIVE_IMAGE_FOLDER_ID` が未設定（テスト画像未投入）のため全員が写真なし表示 |
 
 → 背景機能はローカルにだけあり、**ページ・GAS のどちらにも反映されていない**ことが原因（コードの不具合ではない）。
@@ -731,7 +731,7 @@ cd dist-test && python3 -m http.server 8080      # → Chrome で http://localho
 
 ## 4. WebApp の新バージョン公開（URL を変えない）
 
-「デプロイ」→「デプロイを管理」→ テスト用デプロイ（`AKfycbwF8osF…`）の鉛筆 →「バージョン: 新バージョン」→「デプロイ」。
+「デプロイ」→「デプロイを管理」→ テスト用デプロイの鉛筆 →「バージョン: 新バージョン」→「デプロイ」。
 新しいデプロイを作ると URL が変わり、ページの再ビルドが必要になるため、既存デプロイの編集で行う。
 
 ## 5. 背景設定・確認手順（テスト用ページ）

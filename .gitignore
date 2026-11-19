@@ -3,3 +3,5 @@ dist-test/
 deploy/test/*.local.*
 node_modules/
 dist-gas-test/
+dist-prod/
+dist-gas-prod/

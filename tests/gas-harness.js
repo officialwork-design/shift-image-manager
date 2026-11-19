@@ -173,7 +173,7 @@ function createGasContext(opts) {
       })
     },
     PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in props ? props[k] : null), getProperties: () => Object.assign({}, props),
-      setProperty: (k, v) => { props[k] = String(v); } }) },
+      setProperty: (k, v) => { props[k] = String(v); }, deleteProperty: k => { delete props[k]; } }) },
     ScriptApp: { getScriptId: () => options.scriptId || '1m0G9Y3ATR885RDD1LBEjp5Zsc5Ts4qv_hq1q9kFw3Xe0WmKy5DQVnATS', getOAuthToken: () => 'FAKE_OAUTH_TOKEN' },
     Utilities: {
       formatDate(date, _tz, pattern) {
@@ -257,7 +257,7 @@ function createGasContext(opts) {
   const gasDir = path.join(__dirname, '..', 'gas');
   const files = fs.readdirSync(gasDir).filter(f => f.endsWith('.gs')).sort();
   const source = files.map(f => fs.readFileSync(path.join(gasDir, f), 'utf8')).join('\n;\n') +
-    '\n;this.__gas = { ShiftService, ShiftRepository, SiftService, ImageService, AuthService, ApiRouter, MigrationService, ConfigService, LogService, SpreadsheetService, Utils, BackgroundService, BackgroundImageInfo, ManualShiftService, StoreImageService, MANUAL_SHIFT_HEADERS, CAST_REGISTRY_HEADERS, BACKGROUND_HEADERS, backgroundSelfTest, doGet, doPost, SHIFT_EDIT_HEADERS, SHIFT_MANAGE_HEADERS, SHIFT_STORAGE, setupShiftImageManager, GoogleIdTokenVerifier, AccessControlService, GOOGLE_ID_TOKEN, authSelfTest, setupTestFixtures, TestFixtures, API_PROTECTED_ACTIONS, API_PUBLIC_ACTIONS, API_REMOVED_ACTIONS };';
+    '\n;this.__gas = { ShiftService, ShiftRepository, SiftService, ImageService, AuthService, ApiRouter, MigrationService, ConfigService, LogService, SpreadsheetService, Utils, BackgroundService, BackgroundImageInfo, ManualShiftService, StoreImageService, SetupService, accessControlAddFromProperties, accessControlSummary, MANUAL_SHIFT_HEADERS, CAST_REGISTRY_HEADERS, BACKGROUND_HEADERS, backgroundSelfTest, doGet, doPost, SHIFT_EDIT_HEADERS, SHIFT_MANAGE_HEADERS, SHIFT_STORAGE, setupShiftImageManager, GoogleIdTokenVerifier, AccessControlService, GOOGLE_ID_TOKEN, authSelfTest, setupTestFixtures, TestFixtures, API_PROTECTED_ACTIONS, API_PUBLIC_ACTIONS, API_REMOVED_ACTIONS };';
   vm.createContext(context);
   vm.runInContext(source, context, { filename: 'gas-bundle.js' });
   return { gas: context.__gas, ss, cacheStore, props, lockState, context, fetchLog, openLog, fakeDrive };

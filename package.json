@@ -3,7 +3,7 @@
   "private": true,
   "description": "ローカルテスト専用（GitHub Pages / GAS の動作には不要）",
   "scripts": {
-    "test": "node --test tests/gas.test.js tests/api-and-normalize.test.js tests/migration.test.js tests/shift-state.test.js tests/auth.test.js tests/auth-client.test.js tests/auth-security-review.test.js tests/environment.test.js tests/image-generator.test.js tests/background.test.js tests/manual-mode.test.js tests/store-images.test.js tests/manual-state.test.js tests/build-tools.test.js",
+    "test": "node --test tests/gas.test.js tests/api-and-normalize.test.js tests/migration.test.js tests/shift-state.test.js tests/auth.test.js tests/auth-client.test.js tests/auth-security-review.test.js tests/environment.test.js tests/image-generator.test.js tests/background.test.js tests/manual-mode.test.js tests/store-images.test.js tests/setup.test.js tests/manual-state.test.js tests/build-tools.test.js",
     "test:transport": "node --test --test-timeout=120000 tests/transport-emulation.test.js",
     "test:e2e": "node --test --test-timeout=280000 tests/e2e.test.js tests/e2e-image.test.js tests/e2e-manual.test.js",
     "test:all": "npm test && npm run test:transport && npm run test:e2e"
