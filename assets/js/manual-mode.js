@@ -146,6 +146,7 @@ const ManualMode = (() => {
     photoCache: {},          // fileId → data URL
     photoTarget: null,       // 写真登録の対象行 key
     lookupSeq: 0,
+    lookupOwner: {},         // 行 key → その行を最後に検索した世代
     busy: false
   };
 
@@ -193,7 +194,7 @@ const ManualMode = (() => {
   }
 
   function reset() {
-    Object.assign(m, { store: '', revision: 0, loaded: false, rows: [], savedSignature: S.signature([]), photoCache: {}, photoTarget: null, busy: false });
+    Object.assign(m, { store: '', revision: 0, loaded: false, rows: [], savedSignature: S.signature([]), photoCache: {}, photoTarget: null, busy: false, lookupOwner: {} });
     m.lookupSeq += 1;
     renderStoreButtons();
     render();
@@ -302,22 +303,29 @@ const ManualMode = (() => {
   async function refreshLinks(keys, refresh) {
     const targets = m.rows.filter(r => !keys || keys.indexOf(r.key) !== -1).filter(r => S.cleanName(r.castName));
     if (!targets.length) { render(); return; }
+    // 検索の世代は行ごとに持つ。名前を続けて追加したとき、先の検索結果を捨てて
+    // 「写真を取得中…」のまま残る不具合を防ぐ（後から同じ行を検索し直した場合だけ古い結果を無視する）。
     const mySeq = ++m.lookupSeq;
-    targets.forEach(r => { r.status = 'checking'; });
+    const store = m.store, date = m.date;
+    targets.forEach(r => { r.status = 'checking'; m.lookupOwner[r.key] = mySeq; });
+    const mine = r => m.lookupOwner[r.key] === mySeq;
+    const stale = () => m.store !== store || m.date !== date || !m.rows.some(mine);
     render();
     const names = targets.map(r => S.cleanName(r.castName)).filter((n, i, a) => a.indexOf(n) === i);
     try {
-      const res = await Api.manual.lookup(names, m.store, !!refresh);
-      if (mySeq !== m.lookupSeq) return;   // より新しい検索がある
+      const res = await Api.manual.lookup(names, store, !!refresh);
+      if (stale()) return;
       m.folderWarning = res.folderWarning || '';
       const byName = {};
       res.results.forEach(item => { byName[item.name] = item.candidates; });
-      m.rows = m.rows.map(r => (targets.indexOf(r) !== -1 ? S.applyCandidates(r, byName[S.cleanName(r.castName)] || []) : r));
+      m.rows = m.rows.map(r => (mine(r) ? S.applyCandidates(r, byName[S.cleanName(r.castName)] || []) : r));
+      m.rows.forEach(r => { if (mine(r)) delete m.lookupOwner[r.key]; });
       const failed = await loadThumbnails();
+      if (m.store !== store || m.date !== date) return;
       m.rows = S.markPhotoFailures(m.rows, failed);
     } catch (err) {
-      if (mySeq !== m.lookupSeq) return;
-      m.rows.forEach(r => { if (r.status === 'checking') r.status = 'error'; });
+      if (stale()) return;
+      m.rows.forEach(r => { if (mine(r)) { delete m.lookupOwner[r.key]; if (r.status === 'checking') r.status = 'error'; } });
       if (!handleAuthErrorIfAny(err)) showAlert('写真の確認に失敗しました: ' + manualErrorMessage(err), 'warning');
     }
     render();

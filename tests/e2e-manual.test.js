@@ -64,6 +64,7 @@ async function login(page) {
   await page.waitForFunction(() => state.authView === 'signedIn');
 }
 
+let LOOKUP_DELAY_MS = 0;   // 写真検索の応答を遅らせて、連続追加時の競合を再現する
 async function openApp(browser, h, log, dialogs) {
   const page = await browser.newPage({ acceptDownloads: true });
   page.on('pageerror', e => log.push('pageerror: ' + e.message));
@@ -74,6 +75,7 @@ async function openApp(browser, h, log, dialogs) {
     if (req.url().startsWith(GAS_URL) && req.method() === 'POST') {
       const body = JSON.parse(req.postData());
       log.push('POST ' + body.action);
+      if (body.action === 'lookupCasts' && LOOKUP_DELAY_MS) await new Promise(r => setTimeout(r, LOOKUP_DELAY_MS));
       const out = h.gas.doPost({ parameter: {}, postData: { contents: req.postData() } });
       return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: out.body });
     }
@@ -343,6 +345,22 @@ test('E2E 手動モード: 店舗ボタン・店舗別背景・手入力・保�
       assert.deepEqual(await pixel(page, 5, 5), [210, 240, 255], '秋葉原の背景');
       await page.click('#manualReloadButton'); await waitIdle(page);
       await clickStore(page, '歌舞伎', 'KABUKI');
+    });
+
+    await t.test('名前を続けて追加しても、先に追加した行が「写真を取得中…」のまま残らない', async () => {
+      await clickStore(page, '歌舞伎', 'KABUKI');
+      await page.evaluate(() => { ManualMode.state.rows = []; });
+      LOOKUP_DELAY_MS = 700;
+      try {
+        await page.fill('#manualAddName', 'ちょこ'); await page.press('#manualAddName', 'Enter');
+        await page.fill('#manualAddName', 'すず'); await page.press('#manualAddName', 'Enter');
+        await page.waitForFunction(() => ManualMode.state.rows.length === 2 && !ManualMode.state.rows.some(r => r.status === 'checking'), null, { timeout: 8000 });
+      } finally { LOOKUP_DELAY_MS = 0; }
+      await waitIdle(page);
+      assert.deepEqual(await names(page), ['ちょこ', 'すず']);
+      assert.deepEqual(await statuses(page), ['registered', 'registered']);
+      assert.equal(await page.locator('#manualList img.manual-thumb').count(), 2, '2人とも写真を表示');
+      await page.click('#manualReloadButton'); await waitIdle(page);
     });
 
     await t.test('写真を再検索: フォルダに追加した写真を読み直して表示', async () => {
