@@ -294,6 +294,23 @@ test('E2E: Google ログイン・許可リスト・ロール・期限切れ・�
       assert.equal(await page.isVisible('#appContent'), false);
     });
 
+    await t.test('読み込み中に店舗・日付を続けて変えても、選択欄と表示データが一致する', async () => {
+      await signIn(page, tokenOf('admin'), 'signedIn');
+      await page.waitForFunction(() => document.querySelectorAll('#datePicker option').length > 1);
+      await select(page, 'KABUKI', '2026-11-16');
+      h.delay = { getSavedShift: 800 };
+      try {
+        await page.selectOption('#storePicker', 'AKIBA');          // 読み込み開始（AKIBA / 11-16）
+        await page.selectOption('#datePicker', '2026-11-17');      // 読み込み中の操作は受け付けず元に戻る
+        await waitSelection(page, 'AKIBA', '2026-11-16');
+      } finally { h.delay = null; }
+      await waitIdle(page);
+      assert.equal(await page.inputValue('#storePicker'), 'AKIBA', '選択欄は読み込んだ店舗');
+      assert.equal(await page.inputValue('#datePicker'), '2026-11-16', '選択欄は読み込んだ日付');
+      const cur = await page.evaluate(() => [state.current.store, state.current.date]);
+      assert.deepEqual(cur, ['AKIBA', '2026-11-16']);
+    });
+
     await t.test('未許可ユーザー: 利用者IDを表示し、シフトを表示しない', async () => {
       await signIn(page, tokenOf('stranger'), 'forbidden');
       assert.equal(await page.textContent('#authDetailSub'), USERS.stranger.sub);

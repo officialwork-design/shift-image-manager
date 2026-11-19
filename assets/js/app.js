@@ -515,6 +515,9 @@ async function loadShift(selection) {
     }
     assertDataMatches(data, selection);
     state.selection = { store: selection.store, date: selection.date };
+    // 読み込み中に店舗・日付を操作すると選択欄が元に戻されるため、読み込んだ店舗・日付に必ず合わせ直す
+    document.getElementById('storePicker').value = selection.store;
+    document.getElementById('datePicker').value = selection.date;
     applyData(data);
     await loadSiftPreview(selection);
     setStatus(`同期 ${data.updatedAt || ''}`, 'success');
