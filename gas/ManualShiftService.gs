@@ -139,7 +139,7 @@ const ManualShiftService = {
     const src = this.sources_(store ? BackgroundService.requireStore_(store) : '');
     const known = {};
     src.registry.forEach(e => { if (e.imageFileId) known[e.imageFileId] = true; });
-    src.folder.files.forEach(f => { known[f.fileId] = true; });
+    src.folder.files.forEach(f => { if (this.folderFileAllowed_(f.fileId, src)) known[f.fileId] = true; });   // 共通フォルダ（他店舗のフォルダ分は除く）
     if (src.lookup) src.lookup.allFiles().forEach(f => { known[f.fileId] = true; });   // 出勤先店舗のフォルダだけ
     const photos = {};
     const failed = [];
@@ -298,6 +298,11 @@ const ManualShiftService = {
     return [src.warning].concat(extra).filter(Boolean).join(' / ');
   },
 
+  // 共通画像フォルダのファイルのうち、もう一方の店舗のフォルダにあるものは使わない
+  folderFileAllowed_(fileId, src) {
+    return !(src.lookup && src.lookup.excludesFileId(fileId));
+  },
+
   storeCandidate_(f, store) {
     return { castId: 'drive:' + f.fileId, castName: f.name, imageFileId: f.fileId, revision: 0, source: 'store', fileName: f.name, photoStore: store };
   },
@@ -312,7 +317,7 @@ const ManualShiftService = {
     // 店舗フォルダが設定されている店舗では、店舗共通の既存画像フォルダは使わない（名前の前方一致で別人の写真を出さない）
     if (src.store.configured && !src.store.error) return [];
     const fileId = ImageService.findImageIdForCast(folder.imageMap, name);
-    if (!fileId) return [];
+    if (!fileId || !this.folderFileAllowed_(fileId, src)) return [];
     const file = folder.files.find(f => f.fileId === fileId);
     return [{ castId: 'drive:' + fileId, castName: name, imageFileId: fileId, revision: 0, source: 'folder', fileName: file ? file.name : '' }];
   },
@@ -323,7 +328,7 @@ const ManualShiftService = {
       const photoStore = src.lookup ? src.lookup.storeOf(fileId) : '';
       if (photoStore) return { castId, imageFileId: fileId, source: 'store', photoStore };
       const file = src.folder.files.find(f => f.fileId === fileId);
-      if (!file) return null;
+      if (!file || !this.folderFileAllowed_(fileId, src)) return null;
       return { castId, imageFileId: fileId, source: 'folder' };
     }
     const e = src.registry.find(r => r.castId === castId);

@@ -281,15 +281,62 @@ test('店舗別 6・7: 写真再検索・ADMIN のキャッシュ更新後も他
   assert.match(a.imageUrl, /A_NASHI/);
 });
 
-test('店舗別: もう一方の店舗のフォルダは読まない（設定エラー・読めないフォルダでも影響なし）', () => {
-  const h = sepEnv({ DRIVE_AKIBA_CAST_FOLDER_ID: PROD_IMG_FOLDER });   // 読むと CONFIG_PRODUCTION_ID_IN_TEST で停止する値
+test('店舗別: もう一方の店舗のフォルダの設定エラー・読めないフォルダでも出勤先店舗の検索は止まらない', () => {
+  const h = sepEnv({ DRIVE_AKIBA_CAST_FOLDER_ID: PROD_IMG_FOLDER });   // 秋葉原の設定はテスト環境では停止する値
   const k = look(h, 'KABUKI', ['もも', 'せい']);
-  assert.equal(k.success, true, '歌舞伎の検索で秋葉原のフォルダ設定を読まない');
+  assert.equal(k.success, true, '歌舞伎の検索は秋葉原の設定エラーで止まらない');
   assert.deepEqual(cands(k, 0), ['drive:K_MOMO']);
   assert.equal(k.data.folderWarning, '');
   assert.equal(callPost(h, 'getManualPhotos', { store: 'KABUKI', fileIds: ['K_MOMO'] }, EDITOR).success, true);
   assert.equal(autoView(h, 'KABUKI').by['もも'].status, '登録済み');
   assert.equal(look(h, 'AKIBA', ['せい']).code, 'CONFIG_PRODUCTION_ID_IN_TEST', '秋葉原自身の設定エラーは従来どおり停止');
+  const h2 = sepEnv({ DRIVE_AKIBA_CAST_FOLDER_ID: 'NO_SUCH_FOLDER_000000000000' });
+  const k2 = look(h2, 'KABUKI', ['もも']);
+  assert.equal(k2.success, true);
+  assert.equal(k2.data.folderWarning, '', '使っていない店舗のフォルダの問題は警告しない');
+});
+
+// 本番の構成: 共通画像フォルダの中に店舗フォルダがある（共通フォルダの読み込み結果に両店舗のファイルが含まれる）
+const nestedEnv = props => sepEnv(props, f => {
+  f[TEST_IMG_FOLDER].files.push({ id: 'A_SEI', name: 'せい.png' }, { id: 'K_CHOCO', name: 'ちょこ.jpg' }, { id: 'K_MOMO', name: 'もも.png' }, { id: 'T_IMG_NANA', name: 'なな.png' });
+});
+
+test('共通フォルダの中に店舗フォルダがある構成: 自動取得で他店舗のフォルダの写真を使わない（自店舗分・共通フォルダ独自の写真は従来どおり）', () => {
+  const h = nestedEnv();
+  const k = autoView(h, 'KABUKI');
+  assert.equal(k.by['せい'].status, '未登録', '秋葉原フォルダの「せい」は共通フォルダ経由でも歌舞伎で使わない');
+  assert.match(k.by['ちょこ'].url, /K_CHOCO/, '自店舗フォルダのファイルは共通フォルダ経由でも使える');
+  const a = autoView(h, 'AKIBA');
+  assert.match(a.by['せい'].url, /A_SEI/);
+  assert.equal(a.by['ちょこ'].status, '未登録', '歌舞伎フォルダの「ちょこ」は秋葉原で使わない');
+  assert.match(a.by['もも'].url, /A_MOMO/, '歌舞伎の「もも」（共通フォルダで先に見つかる）ではなく秋葉原の「もも」');
+  assert.equal(castPhotos(h, 'KABUKI').by['せい'], '');
+  assert.equal(castPhotos(h, 'AKIBA').by['ちょこ'], '');
+  assert.deepEqual(callPost(h, 'checkImages', { store: 'KABUKI', date: AUTO_DATE }, EDITOR).data.missingNames.sort(), ['なし子', 'せい'].sort());
+  // 差込候補（imageOptions）・差込の保存も他店舗のフォルダの写真を除く
+  const opts = k.view.imageOptions.map(o => o.fileId);
+  assert.equal(opts.includes('A_SEI'), false);
+  assert.equal(opts.includes('K_CHOCO'), true);
+  assert.equal(opts.includes('T_IMG_NANA'), true, '共通フォルダ独自の写真は従来どおり');
+  const rows = k.view.editRows.map(r => ({ recordId: r.recordId, castName: r.castName, workTime: r.workTime, status: r.status, imageFileId: r.castName === 'せい' ? 'A_SEI' : '' }));
+  assert.equal(callPost(h, 'saveShift', { store: 'KABUKI', date: AUTO_DATE, expectedRevision: k.view.revision, rows }, EDITOR).code, 'INVALID_IMAGE');
+  rows.forEach(r => { r.imageFileId = r.castName === 'せい' ? 'T_IMG_NANA' : ''; });
+  assert.equal(callPost(h, 'saveShift', { store: 'KABUKI', date: AUTO_DATE, expectedRevision: k.view.revision, rows }, EDITOR).success, true, '共通フォルダ独自の写真は差込できる（テスト環境のシート）');
+});
+
+test('共通フォルダの中に店舗フォルダがある構成: 手動入力で他店舗のフォルダの写真を取得・保存できない', () => {
+  const h = nestedEnv();
+  assert.equal(callPost(h, 'saveManualShift', { store: 'KABUKI', date: DATE, expectedRevision: 0, rows: [{ castName: 'せい', castId: 'drive:A_SEI' }] }, EDITOR).code, 'UNKNOWN_CAST');
+  const p = callPost(h, 'getManualPhotos', { store: 'KABUKI', fileIds: ['A_SEI', 'T_IMG_NANA', 'K_MOMO'] }, EDITOR);
+  assert.match(p.data.photos.K_MOMO, /^data:image\/png;base64,/);
+  assert.equal(p.data.photos.A_SEI, undefined);
+  assert.deepEqual(p.data.failed.filter(f => f.reason === 'NOT_REGISTERED').map(f => f.fileId), ['A_SEI'], '共通フォルダ独自の写真（T_IMG_NANA）は登録済み扱いのまま');
+  // 歌舞伎の店舗フォルダが未設定（共通フォルダを使う店舗）でも秋葉原フォルダの写真は候補にしない
+  const h2 = nestedEnv({ DRIVE_KABUKI_CAST_FOLDER_ID: '' });
+  const r = look(h2, 'KABUKI', ['せい', 'なな', 'テストあい']);
+  assert.deepEqual(cands(r, 0), []);
+  assert.deepEqual(cands(r, 1), ['drive:T_IMG_NANA']);
+  assert.deepEqual(cands(r, 2), ['drive:T_IMG_AI']);
 });
 
 test('店舗別: 写真ファイルを変更しない（書き込み・移動・複製・削除の Drive API を呼ばない）', () => {

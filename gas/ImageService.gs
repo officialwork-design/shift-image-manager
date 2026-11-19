@@ -89,7 +89,12 @@ const ImageService = {
     const imageData = this.getDriveImagesCached();
     const storeFinder = ShiftService.storeImageFinder_(target.store);   // 出勤先店舗のフォルダにあれば未登録にしない
     const missingNames = saved.rows
-      .filter(row => !row.imageFileId && !this.findImageIdForCast_(imageData.imageMap || {}, row.castName) && !storeFinder.find(row.castName))
+      .filter(row => {
+        if (row.imageFileId) return false;
+        const id = this.findImageIdForCast_(imageData.imageMap || {}, row.castName);
+        if (id && !storeFinder.isOtherStoreFile(id)) return false;   // 共通フォルダ（他店舗のフォルダ分は除く）
+        return !storeFinder.find(row.castName);
+      })
       .map(row => row.castName);
 
     if (missingNames.length) {

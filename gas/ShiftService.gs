@@ -88,8 +88,9 @@ const ShiftService = {
     if (!Array.isArray(rows)) throw Utils.apiError('INVALID_ROWS', 'rows は配列で指定してください');
 
     const imageData = ImageService.getDriveImagesCached();
+    const storeFinder = this.storeImageFinder_(target.store);
     const normalized = rows
-      .map((row, index) => this.normalizeEditableRow_(row, index + 1, imageData))
+      .map((row, index) => this.normalizeEditableRow_(row, index + 1, imageData, storeFinder))
       .sort((a, b) => a.sortOrder - b.sortOrder);
     this.assertRowLimit_(normalized);
 
@@ -245,7 +246,7 @@ const ShiftService = {
     });
   },
 
-  normalizeEditableRow_(row, fallbackSortOrder, imageData) {
+  normalizeEditableRow_(row, fallbackSortOrder, imageData, storeFinder) {
     const source = row || {};
     const sortOrder = Number(source.sortOrder) || fallbackSortOrder;
     const castName = String(source.castName || source.name || '').trim();
@@ -260,19 +261,19 @@ const ShiftService = {
     if (workTime && WORK_TIME_OPTIONS.indexOf(workTime) === -1) {
       throw Utils.apiError('INVALID_ROWS', '不正な出勤時間です: ' + workTime);
     }
-    if (!ImageService.isKnownImageFileId(imageData, imageFileId)) {
+    if (!ImageService.isKnownImageFileId(imageData, imageFileId) || (storeFinder && storeFinder.isOtherStoreFile(imageFileId))) {
       throw Utils.apiError('INVALID_IMAGE', '不正な差し込み画像です');
     }
 
     return { recordId, sortOrder, castName, workTime, status: statusText === '休み' ? '休み' : '出勤', imageFileId };
   },
 
-  // 手動選択 → 名前一致（既存の画像フォルダ）→ 出勤先店舗のフォルダ → 準備中 → なし
+  // 手動選択 → 名前一致（既存の画像フォルダ。もう一方の店舗のフォルダにあるファイルは除く）→ 出勤先店舗のフォルダ → 準備中 → なし
   // storeFinder は省略可（省略時は店舗フォルダを使わない＝従来どおり）
   resolveImage_(imageData, row, storeFinder) {
     if (row.imageFileId) return { fileId: row.imageFileId, source: 'manual' };
     const matched = ImageService.findImageIdForCast((imageData && imageData.imageMap) || {}, row.castName);
-    if (matched) return { fileId: matched, source: 'auto' };
+    if (matched && !(storeFinder && storeFinder.isOtherStoreFile(matched))) return { fileId: matched, source: 'auto' };
     const hit = storeFinder ? storeFinder.find(row.castName) : null;
     if (hit) return { fileId: hit.fileId, source: 'store', photoStore: hit.store };
     if (imageData && imageData.preparingImageId) return { fileId: imageData.preparingImageId, source: 'preparing' };
@@ -285,16 +286,26 @@ const ShiftService = {
    *  - 一致が 1 件のときだけ使う（同名ファイルが複数ある場合は名前だけで選ばない）
    *  - フォルダ未設定・読み込み失敗・設定エラーでも自動取得モードは止めない（その写真が無い扱い）
    *  - フォルダの一覧は最初に必要になったときだけ読む
+   *  - isOtherStoreFile(fileId): 共通画像フォルダのファイルが、もう一方の店舗のフォルダにあるか（他店舗の写真を使わないため）
    */
   storeImageFinder_(store) {
     let lookup = null;
     let failed = false;
+    const getLookup = () => { if (!lookup) lookup = StoreImageService.createLookup(store); return lookup; };
     return {
+      isOtherStoreFile(fileId) {
+        if (!fileId) return false;
+        try {
+          return getLookup().excludesFileId(fileId);
+        } catch (err) {
+          LogService.error('ShiftService.storeImageFinder', err, { store });
+          return false;
+        }
+      },
       find(castName) {
         if (failed || !String(castName || '').trim()) return null;
         try {
-          if (!lookup) lookup = StoreImageService.createLookup(store);
-          const hit = lookup.matches(castName);
+          const hit = getLookup().matches(castName);
           return hit.files.length === 1 ? { fileId: hit.files[0].fileId, store: hit.store } : null;
         } catch (err) {
           failed = true;
@@ -356,7 +367,7 @@ const ShiftService = {
       editRows,
       activeCastList,
       absentCastList,
-      imageOptions: ImageService.getImageOptions(imageData, 'w120'),
+      imageOptions: ImageService.getImageOptions(imageData, 'w120').filter(o => !storeFinder.isOtherStoreFile(o.fileId)),   // 他店舗のフォルダの写真は差込候補に出さない
       missingImages: missing,
       updatedAt: Utils.now('HH:mm:ss'),
       savedAt: saved.meta ? saved.meta.updatedAt : ''

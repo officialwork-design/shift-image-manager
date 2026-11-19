@@ -14,6 +14,9 @@
  * - 写真は店舗別に管理する（createLookup）: 出勤先店舗のフォルダだけを検索し、もう一方の店舗のフォルダは読まない。
  *   出勤先店舗に無ければ「写真未登録」（他店舗の写真を候補に混ぜない）。
  *   ※ 2026-11-19 の 08aaa9a で一時的に店舗横断検索にしたが、運用に合わせて店舗別に戻した（PNG 保存名の改善は維持）。
+ * - 既存の共通画像フォルダ（DRIVE_IMAGE_FOLDER_ID(S)）の中に店舗フォルダが入っている構成でも他店舗の写真を使わないよう、
+ *   共通フォルダの結果から「もう一方の店舗のフォルダにあるファイル」を除く（excludesFileId）。
+ *   そのためだけに、もう一方の店舗のフォルダ一覧（キャッシュ）を読む。読めない場合は除外なし（従来どおり）。
  */
 const STORE_CAST_FOLDER_KEYS = { KABUKI: 'DRIVE_KABUKI_CAST_FOLDER_ID', AKIBA: 'DRIVE_AKIBA_CAST_FOLDER_ID' };
 const STORE_IMAGE_CACHE_PREFIX = 'STORE_CAST_IMAGES_V1:';
@@ -84,6 +87,7 @@ const StoreImageService = {
    *  storeOf(fileId) … そのファイルが出勤先店舗のフォルダにあれば店舗名（無ければ ''）
    *  allFiles()      … 出勤先店舗のファイル（店舗付き）
    *  warnings()      … 追加の警告（店舗別検索では常に空。出勤先店舗の警告は images(store).warning）
+   *  excludesFileId(fileId) … もう一方の店舗のフォルダにあるファイルか（共通画像フォルダの結果から除くため。出勤先店舗のフォルダにもあれば除かない）
    */
   createLookup(store, options) {
     const self = this;
@@ -94,6 +98,7 @@ const StoreImageService = {
       return memo[s];
     };
     const usable = imgs => imgs && imgs.configured && !imgs.error;
+    let otherIds = null;
     return {
       store: order[0],
       order,
@@ -120,6 +125,21 @@ const StoreImageService = {
       },
       warnings() {
         return order.slice(1).filter(s => memo[s] && memo[s].error && memo[s].warning).map(s => memo[s].warning);
+      },
+      excludesFileId(fileId) {
+        if (!fileId) return false;
+        if (!otherIds) {
+          otherIds = {};
+          STORE_NAMES.filter(s => s !== order[0]).forEach(s => {
+            try {
+              (self.getImages(s, options).files || []).forEach(f => { otherIds[f.fileId] = true; });
+            } catch (err) {
+              LogService.error('StoreImageService.excludesFileId', err, { store: s });   // 読めない・設定エラーは除外なし
+            }
+          });
+        }
+        if (!otherIds[fileId]) return false;
+        return !self.hasFile(images(order[0]), fileId);
       }
     };
   },
