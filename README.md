@@ -911,3 +911,90 @@ GAS の実行ユーザー（WebApp の「次のユーザーとして実行: 自�
 - `lookupCasts { store, names[], refresh? }` … store 必須。`refresh=true` でフォルダ一覧を読み直す
 - `getManualPhotos { store, fileIds[] }` … 店舗フォルダ・登録写真・共通フォルダにあるファイルだけ返す
 - `refreshImageCache`（ADMIN）で店舗フォルダのキャッシュも破棄
+
+---
+
+# 本番環境（設定・デプロイ・運用）
+
+秘密の値（OAuth クライアントシークレット・トークン等）はこの README に書かない。ID は公開しても問題ないものだけを記載する。
+
+## 1. 概要
+
+- フロント: GitHub Pages（https://officialwork-design.github.io/shift-image-manager/）。`config.js` は本番 WebApp・`APP_ENV: 'production'`。
+- サーバー: 本番 GAS（Script ID `1m0G9Y3ATR885RDD1LBEjp5Zsc5Ts4qv_hq1q9kFw3Xe0WmKy5DQVnATS`）の WebApp。既存デプロイ（`AKfycbz-NSM70n…`）を新バージョンで更新し URL を維持する。
+- データ: 本番スプレッドシート（`1s-Ga2SpUWzoKQHSOymqo5MCO_wgdevFKrQWHUIKvct0`）。
+- キャスト写真: 店舗別 Drive フォルダを読み取りのみで参照（複製・移動しない）。
+
+## 2. 必要な Google サービス・権限
+
+| 種類 | 内容 |
+|---|---|
+| OAuth クライアント（ウェブ） | 本番専用。承認済みの JavaScript 生成元は `https://officialwork-design.github.io` のみ（localhost 用のテストクライアントとは別） |
+| GAS スコープ | spreadsheets / drive.readonly / drive.file / script.container.ui / script.external_request（初回実行時に本人が承認） |
+| WebApp | 全員（匿名）・自分として実行（アクセス制御は ID トークン検証＋アクセス権限シート） |
+
+## 3. Script Properties（キー名のみ）
+
+| キー | 内容 |
+|---|---|
+| `AUTH_MODE` | `google_id_token`（削除すると全 API を拒否＝緊急停止） |
+| `GOOGLE_OAUTH_CLIENT_ID` | 本番 OAuth クライアント ID（フロントは `getPublicConfig` から取得） |
+| `DRIVE_KABUKI_CAST_FOLDER_ID` / `DRIVE_AKIBA_CAST_FOLDER_ID` | 店舗別キャスト写真フォルダ（読み取りのみ） |
+| `DRIVE_BACKGROUND_FOLDER_ID` / `DRIVE_CAST_PHOTO_FOLDER_ID` | 背景・写真登録の保存先。`setupDriveFolders()` がアプリ用フォルダを作成して設定 |
+| `APP_ENV` | 本番では設定しない（`test` は本番プロジェクトでは拒否される） |
+
+## 4. OAuth 設定手順
+
+1. Google Cloud コンソール → Google Auth Platform → クライアント →「クライアントを作成」→ 種類「ウェブ アプリケーション」
+2. 承認済みの JavaScript 生成元に `https://officialwork-design.github.io`（パスなし）。リダイレクト URI は不要
+3. 作成されたクライアント ID を Script Properties `GOOGLE_OAUTH_CLIENT_ID` に設定（シークレットは使わない・保存しない）
+4. 同意画面が「テスト中」の場合、プロジェクトのオーナー以外はテストユーザーへの追加（または公開）が必要
+
+## 5. 管理者（ADMIN）の登録
+
+- 有効な ADMIN がいない間は EDITOR を登録できない（管理者 0 人の運用を防止）。
+- 方法 A（エディタ）: Script Properties に `ACCESS_ADD_SUB`（利用者ID・数字）/ `ACCESS_ADD_EMAIL` / `ACCESS_ADD_ROLE` を設定 → `accessControlAddFromProperties` を実行（3 キーは実行後に自動削除）。
+- 方法 B（メニュー）: スプレッドシートのメニュー「アクセス権限の追加」。
+- 利用者ID（sub）は、本人がログインしたときの「利用権限がありません」画面に表示される。
+- 確認: `accessControlSummary`（件数・有効な ADMIN 数。sub は末尾4桁のみ表示）。
+
+## 6. シート初期化（新規作成と移行の区別）
+
+- `setupShiftImageManager`（メニュー「初期シート生成」）: 無いシートだけ作成（アクセス権限・シフト編集・シフト編集管理・背景設定・手動シフト・キャスト画像）。既存シートのデータは変更しない。ID管理は足りないキーの行を追記するだけ。
+- 旧データ移行（任意）: 旧「画像生成」シートの 1 店舗・1 日分のみ。Phase 1.5 の 14 章（バックアップ → dry-run → 実行 → 自動検証）。
+- `setupDriveFolders` → `importStoreBackgrounds`: 背景未登録の店舗だけ、店舗フォルダの「背景画像<店舗>」を背景フォルダへ登録（元ファイルは変更しない。登録済みは上書きしない）。
+
+## 7. 本番デプロイ手順
+
+1. バックアップ（スプレッドシートのコピー・Script Properties の一覧・デプロイのバージョン・現行コード）
+2. `tools/build-prod-gas-bundle.sh` → `dist-gas-prod/Code.gs` を本番 GAS の `Code.gs` に貼り付け、他の `.gs` は 1 行のコメントにする。`appsscript.json` を差し替え。保存後に再読み込みして sha256 を照合
+3. エディタで `setupShiftImageManager` を実行（スコープの承認は本人操作）→ `setupDriveFolders` → Script Properties（3 章）→ `importStoreBackgrounds` → ADMIN 登録（5 章）→ `backgroundSelfTest` / `authSelfTest`
+4. 確認用デプロイ（同じプロジェクトの別デプロイ）を作成し、`PROD_GAS_WEB_APP_URL=<確認用> PROD_SITE_OUT=staging tools/build-prod-site.sh` で作ったページを GitHub Pages の `staging/` に置き、本番と同じオリジンで動作確認
+5. 既存デプロイ（URL 不変）を新バージョンに更新 → GitHub Pages のルート（index.html / assets / config.js）を同時に反映 → `staging/` を削除し、確認用デプロイはアーカイブ
+6. 公開後の確認: ログイン・ADMIN / EDITOR・店舗別写真・背景・保存 / 再読み込み・PNG 1447×2048・自動取得モード・既存データ（SIFT_DATA 等）の不変
+
+## 8. 運用
+
+- 利用者の追加・無効化: アクセス権限シート（enabled を FALSE で無効化。行の削除は不要）
+- 写真の追加: 店舗フォルダに「名前.png」を置く → 画面の「写真を再検索」
+- 背景の変更: 画面の「背景画像を選択」→「背景・設定を保存」（解除は ADMIN のみ）
+
+## 9. 障害時の復旧（ロールバック）
+
+1. GAS:「デプロイを管理」→ 既存デプロイの編集 → 直前のバージョン（例: 39）を選んでデプロイ（URL 不変）
+2. GitHub Pages: 直前のコミットに戻す（revert して push）
+3. 緊急停止: Script Properties の `AUTH_MODE` を削除（新しい版のまま全 API を拒否）
+4. 追加したシート・フォルダ・Script Properties は旧版に影響しないため残してよい
+5. コードの復元: バックアップ（旧版 = origin/main 5d5ed64 の gas/）を貼り戻す
+
+## 10. トラブルシュート（本番）
+
+| 症状 | 原因 | 対処 |
+|---|---|---|
+| ログインボタンが出ない / `origin_mismatch` | OAuth クライアントの生成元が違う | 生成元が `https://officialwork-design.github.io` か確認（反映に数分かかる） |
+| AUTH_NOT_CONFIGURED | `AUTH_MODE` / `GOOGLE_OAUTH_CLIENT_ID` 未設定 | 3 章 |
+| FORBIDDEN（NOT_REGISTERED 等） | アクセス権限シートに未登録・無効 | 5 章 |
+| ACCESS_LIST_NOT_CONFIGURED | アクセス権限シートが無い | `setupShiftImageManager` |
+| 「写真フォルダが設定されていません」 | 店舗フォルダのキー未設定 | 3 章 |
+| BACKGROUND_FOLDER_NOT_CONFIGURED | 背景フォルダ未設定 | `setupDriveFolders` |
+| 画面が「接続先の環境が一致しません」で停止 | config.js の APP_ENV と GAS の環境が不一致 | 本番は `production`・APP_ENV 未設定 |
