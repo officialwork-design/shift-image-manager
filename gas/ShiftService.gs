@@ -24,6 +24,7 @@ const ShiftService = {
     const target = Utils.requireStoreAndIsoDate(store, date);
     const saved = ShiftRepository.readCommitted(target.store, target.date);
     const imageData = ImageService.getDriveImagesCached();
+    const storeFinder = this.storeImageFinder_(target.store);
     return {
       store: target.store,
       date: target.date,
@@ -31,7 +32,7 @@ const ShiftService = {
       revision: saved.revision,
       initialized: saved.initialized,
       casts: saved.rows.map(row => {
-        const resolved = this.resolveImage_(imageData, row);
+        const resolved = this.resolveImage_(imageData, row, storeFinder);
         return {
           recordId: row.recordId,
           sortOrder: row.sortOrder,
@@ -266,24 +267,54 @@ const ShiftService = {
     return { recordId, sortOrder, castName, workTime, status: statusText === '休み' ? '休み' : '出勤', imageFileId };
   },
 
-  // 手動選択 → 名前一致 → 準備中 → なし
-  resolveImage_(imageData, row) {
+  // 手動選択 → 名前一致（既存の画像フォルダ）→ 店舗フォルダ（出勤先店舗 → もう一方の店舗）→ 準備中 → なし
+  // storeFinder は省略可（省略時は店舗フォルダを使わない＝従来どおり）
+  resolveImage_(imageData, row, storeFinder) {
     if (row.imageFileId) return { fileId: row.imageFileId, source: 'manual' };
     const matched = ImageService.findImageIdForCast((imageData && imageData.imageMap) || {}, row.castName);
     if (matched) return { fileId: matched, source: 'auto' };
+    const hit = storeFinder ? storeFinder.find(row.castName) : null;
+    if (hit) return { fileId: hit.fileId, source: 'store', photoStore: hit.store };
     if (imageData && imageData.preparingImageId) return { fileId: imageData.preparingImageId, source: 'preparing' };
     return { fileId: '', source: 'none' };
+  },
+
+  /**
+   * 自動取得モード用: 店舗フォルダ（KABUKI・AKIBA 共通）から名前で写真を探す
+   *  - 出勤先店舗のフォルダ → もう一方の店舗のフォルダ（StoreImageService.createLookup）
+   *  - 一致が 1 件のときだけ使う（同名ファイルが複数ある場合は名前だけで選ばない）
+   *  - フォルダ未設定・読み込み失敗・設定エラーでも自動取得モードは止めない（その写真が無い扱い）
+   *  - フォルダの一覧は最初に必要になったときだけ読む
+   */
+  storeImageFinder_(store) {
+    let lookup = null;
+    let failed = false;
+    return {
+      find(castName) {
+        if (failed || !String(castName || '').trim()) return null;
+        try {
+          if (!lookup) lookup = StoreImageService.createLookup(store);
+          const hit = lookup.matches(castName);
+          return hit.files.length === 1 ? { fileId: hit.files[0].fileId, store: hit.store } : null;
+        } catch (err) {
+          failed = true;
+          LogService.error('ShiftService.storeImageFinder', err, { store });
+          return null;
+        }
+      }
+    };
   },
 
   // 画面表示用（旧 getImageList と同じ項目 + recordId / revision / initialized）
   buildView_(target, saved) {
     const imageData = ImageService.getDriveImagesCached();
+    const storeFinder = this.storeImageFinder_(target.store);
     const activeCastList = [];
     const absentCastList = [];
     const missing = [];
 
     const editRows = saved.rows.map((row, index) => {
-      const resolved = this.resolveImage_(imageData, row);
+      const resolved = this.resolveImage_(imageData, row, storeFinder);
       if (resolved.source === 'preparing' || resolved.source === 'none') missing.push(row.castName);
       return {
         recordId: row.recordId,
@@ -293,7 +324,7 @@ const ShiftService = {
         name: row.castName,
         workTime: row.workTime,
         status: row.status,
-        imageStatus: resolved.source === 'manual' || resolved.source === 'auto' ? '登録済み' : (resolved.source === 'preparing' ? '準備中' : '未登録'),
+        imageStatus: resolved.source === 'manual' || resolved.source === 'auto' || resolved.source === 'store' ? '登録済み' : (resolved.source === 'preparing' ? '準備中' : '未登録'),
         imageFileId: row.imageFileId,
         imageName: ImageService.getImageNameForFileId(imageData, row.imageFileId),
         imageSource: row.imageFileId ? 'manual' : 'auto',

@@ -258,7 +258,7 @@ test('E2E: 店舗×日付の保存・切替・再読み込み・未保存警告�
       await page.click('#checkButton'); await waitIdle(page);
       assert.match(await page.textContent('#alertArea'), /画像未登録はありません|画像未登録:/);
       const [download] = await Promise.all([page.waitForEvent('download'), page.click('#exportButton')]);
-      assert.equal(download.suggestedFilename(), 'shift-image_KABUKI_2026-11-16.png');
+      assert.equal(download.suggestedFilename(), '2026-11-16_KABUKI.png');
     });
 
     assert.deepEqual(log.filter(l => l.startsWith('pageerror')), []);

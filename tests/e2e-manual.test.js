@@ -256,7 +256,7 @@ test('E2E 手動モード: 店舗ボタン・店舗別背景・手入力・保�
       assert.deepEqual(await cellCenter(page, 4, 2), SUZU);
       assert.deepEqual(await cellCenter(page, 4, 3), RUN);
       const [download] = await Promise.all([page.waitForEvent('download'), page.click('#pngSaveButton')]);
-      assert.equal(download.suggestedFilename(), 'shift_KABUKI_2026-11-20_1447x2048.png');
+      assert.equal(download.suggestedFilename(), '2026-11-20_KABUKI.png');
       assert.deepEqual(pngSize(fs.readFileSync(await download.path())), { width: 1447, height: 2048 });
     });
 
@@ -332,17 +332,23 @@ test('E2E 手動モード: 店舗ボタン・店舗別背景・手入力・保�
       await page.click('#manualReloadButton'); await waitIdle(page);   // 破棄して保存済みに戻す（confirm は自動で OK）
     });
 
-    await t.test('秋葉原「せい」: 店舗フォルダの写真を自動表示 → 秋葉原の背景で生成・店舗を戻すと歌舞伎の写真', async () => {
+    await t.test('秋葉原「せい」＋歌舞伎「ちょこ」: 店舗横断で両方の写真を自動表示 → 秋葉原の背景で生成・PNG 名は 日付_AKIBA.png', async () => {
       await clickStore(page, '秋葉原', 'AKIBA');
       await page.evaluate(() => { ManualMode.state.rows = []; });
       await addByEnter(page, 'せい');
       await addByEnter(page, 'ちょこ');
-      assert.deepEqual(await statuses(page), ['registered', 'missing'], '秋葉原のフォルダに ちょこ は無い');
+      assert.deepEqual(await statuses(page), ['registered', 'registered'], '秋葉原のフォルダに無い ちょこ は歌舞伎のフォルダから');
       assert.match(await page.textContent('#manualList .manual-row:nth-child(1)'), /写真あり（店舗フォルダ）/);
+      assert.match(await page.textContent('#manualList .manual-row:nth-child(2)'), /写真あり（歌舞伎の店舗フォルダ）/);
       const c = await generate(page);
       assert.equal(c.disabled, false, c.errors);
       assert.deepEqual(await cellCenter(page, 2, 0), SEI);
+      assert.deepEqual(await cellCenter(page, 2, 1), CHOCO, '歌舞伎の写真で生成');
       assert.deepEqual(await pixel(page, 5, 5), [210, 240, 255], '秋葉原の背景');
+      const date = await page.evaluate(() => ManualMode.state.date);
+      const [download] = await Promise.all([page.waitForEvent('download'), page.click('#pngSaveButton')]);
+      assert.equal(download.suggestedFilename(), `${date}_AKIBA.png`);
+      assert.deepEqual(pngSize(fs.readFileSync(await download.path())), { width: 1447, height: 2048 });
       await page.click('#manualReloadButton'); await waitIdle(page);
       await clickStore(page, '歌舞伎', 'KABUKI');
     });

@@ -139,7 +139,7 @@ test('E2E 画像生成: 背景アップロード・店舗別・自動配置・PN
       assert.deepEqual(await pixel(page, Math.round(cell.x + cell.w / 2), Math.round(cell.y + cell.h / 2)), [230, 80, 140]);
 
       const [download] = await Promise.all([page.waitForEvent('download'), page.click('#pngSaveButton')]);
-      assert.equal(download.suggestedFilename(), 'shift_KABUKI_2026-11-16_1447x2048.png');
+      assert.equal(download.suggestedFilename(), '2026-11-16_KABUKI.png');
       const buf = fs.readFileSync(await download.path());
       assert.deepEqual(pngSize(buf), { width: 1447, height: 2048 });
     });

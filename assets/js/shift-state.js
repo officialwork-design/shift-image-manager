@@ -3,6 +3,7 @@
  * - 未保存変更の検出
  * - 保存ペイロードの組み立て
  * - API エラーの分類
+ * - PNG の保存ファイル名
  */
 (function (root, factory) {
   const api = factory();
@@ -93,5 +94,17 @@
     };
   }
 
-  return { CONFLICT_MESSAGE, rowsSignature, isDirty, buildSavePayload, applyStatusLocally, sameSelection, requestIdFor, classifyError, permissionsFor };
+  // PNG の保存ファイル名: YYYY-MM-DD_店舗名.png（例: 2026-11-19_KABUKI.png）
+  // 日付・店舗が正しくなければ ''（呼び出し側で保存を止める）
+  function pngFileName(date, store) {
+    const d = String(date || '').trim();
+    const s = String(store || '').trim().toUpperCase();
+    const m = d.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m || !/^[A-Z][A-Z0-9_]*$/.test(s)) return '';
+    const month = Number(m[2]), day = Number(m[3]);
+    if (month < 1 || month > 12 || day < 1 || day > 31) return '';
+    return d + '_' + s + '.png';
+  }
+
+  return { CONFLICT_MESSAGE, rowsSignature, isDirty, buildSavePayload, applyStatusLocally, sameSelection, requestIdFor, classifyError, permissionsFor, pngFileName };
 });

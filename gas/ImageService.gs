@@ -87,8 +87,9 @@ const ImageService = {
     const config = ConfigService.getConfig();
     const saved = ShiftRepository.readCommitted(target.store, target.date);
     const imageData = this.getDriveImagesCached();
+    const storeFinder = ShiftService.storeImageFinder_(target.store);   // 店舗フォルダ（店舗横断）にあれば未登録にしない
     const missingNames = saved.rows
-      .filter(row => !row.imageFileId && !this.findImageIdForCast_(imageData.imageMap || {}, row.castName))
+      .filter(row => !row.imageFileId && !this.findImageIdForCast_(imageData.imageMap || {}, row.castName) && !storeFinder.find(row.castName))
       .map(row => row.castName);
 
     if (missingNames.length) {

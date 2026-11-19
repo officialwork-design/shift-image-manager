@@ -64,3 +64,12 @@ test('フロント状態: ロール別の操作可否（初期化は ADMIN の�
   assert.deepEqual(S.permissionsFor('EDITOR'), { canView: true, canEdit: true, canReset: false, canRefreshCache: false });
   assert.deepEqual(S.permissionsFor(undefined), { canView: false, canEdit: false, canReset: false, canRefreshCache: false });
 });
+
+test('PNG の保存ファイル名: YYYY-MM-DD_店舗名.png（両店舗）・不正な日付/店舗は空', () => {
+  assert.equal(S.pngFileName('2026-11-19', 'KABUKI'), '2026-11-19_KABUKI.png');
+  assert.equal(S.pngFileName('2026-11-19', 'AKIBA'), '2026-11-19_AKIBA.png');
+  assert.equal(S.pngFileName(' 2026-11-19 ', 'akiba'), '2026-11-19_AKIBA.png', '前後の空白・小文字は正規化');
+  ['', '2026/11/19', '2026-1-9', '2026-13-01', '2026-11-00', '11月19日'].forEach(d => assert.equal(S.pngFileName(d, 'KABUKI'), '', 'date ' + d));
+  ['', '../x', 'KA BUKI', '歌舞伎'].forEach(s => assert.equal(S.pngFileName('2026-11-19', s), '', 'store ' + s));
+  assert.doesNotMatch(S.pngFileName('2026-11-19', 'KABUKI'), /[\\/:*?"<>|\s]/, 'ファイル名に使えない文字を含まない');
+});

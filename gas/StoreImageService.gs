@@ -11,6 +11,11 @@
  *   既存の画像フォルダで使っている「キャスト名マスタの前方一致」は使わない（「ももか」が「もも」に誤って紐付くのを防ぐ）。
  *   同じ名前に一致するファイルが2つ以上ある場合は候補を全部返し、画面で選ぶまで写真を使わない。
  * - 一覧は CacheService に店舗ごとに保存（IMAGE_CACHE_SECONDS、既定600秒）。refresh=true で読み直す。
+ * - 店舗横断の検索（createLookup）: 写真は KABUKI・AKIBA で共通に使う。
+ *     1. 出勤先店舗のフォルダを検索 → 見つかればそれだけを使う（両方にあっても出勤先店舗を優先）
+ *     2. 見つからなければ、もう一方の店舗のフォルダを検索
+ *     3. どちらにも無ければ「写真未登録」
+ *   もう一方の店舗のフォルダは必要になったときだけ読む（キャッシュも店舗ごと。refresh=true は両店舗に効く）。
  */
 const STORE_CAST_FOLDER_KEYS = { KABUKI: 'DRIVE_KABUKI_CAST_FOLDER_ID', AKIBA: 'DRIVE_AKIBA_CAST_FOLDER_ID' };
 const STORE_IMAGE_CACHE_PREFIX = 'STORE_CAST_IMAGES_V1:';
@@ -66,6 +71,59 @@ const StoreImageService = {
       }
     } catch (err) { /* キャッシュできなくても続行 */ }
     return this.withKeyMap_({ store: s, configured: true, folderId, files: scanned, warning: '' });
+  },
+
+  // 検索順: 出勤先店舗 → もう一方の店舗
+  searchOrder(store) {
+    const s = BackgroundService.requireStore_(store);
+    return [s].concat(STORE_NAMES.filter(x => x !== s));
+  },
+
+  /**
+   * 店舗横断の検索器（1リクエストの間だけ使う。店舗フォルダの一覧は必要になった店舗だけ読む）
+   *  images(store)   … その店舗の getImages の結果（メモ化）
+   *  matches(name)   … 検索順で最初に一致した店舗のファイル { store, files }（無ければ store '' / files []）
+   *  storeOf(fileId) … そのファイルがある店舗（検索順。無ければ ''）
+   *  allFiles()      … 両店舗のファイル（店舗付き）
+   *  warnings()      … 読み込んだもう一方の店舗のフォルダが読めなかったときの警告
+   */
+  createLookup(store, options) {
+    const self = this;
+    const order = this.searchOrder(store);
+    const memo = {};
+    const images = s => {
+      if (!memo[s]) memo[s] = self.getImages(s, options);
+      return memo[s];
+    };
+    const usable = imgs => imgs && imgs.configured && !imgs.error;
+    return {
+      store: order[0],
+      order,
+      images,
+      matches(castName) {
+        for (let i = 0; i < order.length; i += 1) {
+          const imgs = images(order[i]);
+          if (!usable(imgs)) continue;
+          const files = self.findFiles(imgs, castName);
+          if (files.length) return { store: order[i], files };
+        }
+        return { store: '', files: [] };
+      },
+      storeOf(fileId) {
+        for (let i = 0; i < order.length; i += 1) {
+          if (self.hasFile(images(order[i]), fileId)) return order[i];
+        }
+        return '';
+      },
+      allFiles() {
+        const out = [];
+        order.forEach(s => { (images(s).files || []).forEach(f => out.push({ fileId: f.fileId, name: f.name, store: s })); });
+        return out;
+      },
+      warnings() {
+        return order.slice(1).filter(s => memo[s] && memo[s].error && memo[s].warning).map(s => memo[s].warning);
+      }
+    };
   },
 
   clearCache() {

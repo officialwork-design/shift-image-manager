@@ -13,7 +13,8 @@
  *     DRIVE_CAST_PHOTO_FOLDER_ID が未設定のとき、テスト環境に限りフォルダを自動作成する（本番は設定必須）。
  * - 写真は data URL で返す（Canvas を汚染させず PNG 保存できるようにする）。
  * - 店舗別キャスト画像フォルダ（StoreImageService。DRIVE_KABUKI/AKIBA_CAST_FOLDER_ID）のファイルも候補にする（castId = drive:<fileId>）。
- *   候補の優先: 店舗フォルダ ＋ この画面で登録したキャスト。店舗フォルダが未設定の店舗だけ既存の画像フォルダも使う。
+ *   候補の優先: 出勤先店舗のフォルダ ＋ この画面で登録したキャスト → もう一方の店舗のフォルダ（店舗横断）
+ *     → 既存の画像フォルダ（出勤先店舗のフォルダが未設定の店舗だけ）。
  *   同じ名前に候補が2つ以上あれば画面で選ぶ（名前だけで写真を決めない）。
  */
 const MANUAL_SHIFT_HEADERS = ['store', 'date', 'sortOrder', 'castName', 'castId', 'imageFileId',
@@ -45,7 +46,7 @@ const ManualShiftService = {
     const rows = current.rows.map(r => Object.assign({ sortOrder: r.sortOrder, castName: r.castName, castId: r.castId, imageFileId: r.imageFileId },
       { photo: this.resolvePhoto_(r.castId, r.castName, src) }));
     return { store: target.store, date: target.date, revision: current.revision, updatedAt: current.updatedAt, rows,
-      folderWarning: src.warning, storeFolderConfigured: src.store.configured };
+      folderWarning: this.warningOf_(src), storeFolderConfigured: src.store.configured };
   },
 
   // ===== 手動シフトの保存 =====
@@ -124,7 +125,7 @@ const ManualShiftService = {
       const name = String(raw || '').trim().slice(0, MANUAL_LIMITS.MAX_NAME_LENGTH);
       return { name, candidates: name ? this.candidatesFor_(name, src) : [] };
     });
-    return { store: s, results, folderWarning: src.warning, storeFolderConfigured: src.store.configured,
+    return { store: s, results, folderWarning: this.warningOf_(src), storeFolderConfigured: src.store.configured,
       storeImageCount: src.store.files.length };
   },
 
@@ -139,7 +140,7 @@ const ManualShiftService = {
     const known = {};
     src.registry.forEach(e => { if (e.imageFileId) known[e.imageFileId] = true; });
     src.folder.files.forEach(f => { known[f.fileId] = true; });
-    src.store.files.forEach(f => { known[f.fileId] = true; });
+    if (src.lookup) src.lookup.allFiles().forEach(f => { known[f.fileId] = true; });   // 両店舗のフォルダ（店舗横断）
     const photos = {};
     const failed = [];
     ids.forEach(id => {
@@ -281,22 +282,39 @@ const ManualShiftService = {
   },
 
   // 写真の参照元（登録キャスト・既存の画像フォルダ・店舗フォルダ）
+  // lookup: 店舗横断の検索器（出勤先店舗 → もう一方の店舗）。store は出勤先店舗のフォルダ
   sources_(store, options) {
     const registry = this.readRegistry_();
     const folder = this.readFolderImages_();
-    const storeImgs = store ? StoreImageService.getImages(store, options) : { configured: false, files: [], keyMap: {}, warning: '' };
+    const lookup = store ? StoreImageService.createLookup(store, options) : null;
+    const storeImgs = lookup ? lookup.images(lookup.store) : { configured: false, files: [], keyMap: {}, warning: '' };
     const warning = [storeImgs.warning, folder.warning].filter(Boolean).join(' / ');
-    return { registry, folder, store: storeImgs, warning };
+    return { registry, folder, store: storeImgs, storeName: lookup ? lookup.store : '', lookup, warning };
+  },
+
+  // 画面に出す警告（もう一方の店舗のフォルダを読んだときの警告も含める）
+  warningOf_(src) {
+    const extra = src.lookup ? src.lookup.warnings() : [];
+    return [src.warning].concat(extra).filter(Boolean).join(' / ');
+  },
+
+  storeCandidate_(f, store) {
+    return { castId: 'drive:' + f.fileId, castName: f.name, imageFileId: f.fileId, revision: 0, source: 'store', fileName: f.name, photoStore: store };
   },
 
   candidatesFor_(name, src) {
     const registry = src.registry, folder = src.folder;
     const key = this.nameKey_(name);
-    const fromStore = StoreImageService.findFiles(src.store, name).map(f => ({
-      castId: 'drive:' + f.fileId, castName: f.name, imageFileId: f.fileId, revision: 0, source: 'store', fileName: f.name }));
+    const own = src.lookup ? StoreImageService.findFiles(src.store, name) : [];
+    const fromStore = own.map(f => this.storeCandidate_(f, src.storeName));
     const fromRegistry = registry.filter(e => e.nameKey === key).map(e => this.registryView_(e));
     if (fromStore.length || fromRegistry.length) return fromStore.concat(fromRegistry);
-    // 店舗フォルダが設定されている店舗では、店舗共通の既存画像フォルダは使わない（他店舗のキャストの写真を出さない）
+    // 出勤先店舗に無ければ、もう一方の店舗のフォルダ（店舗横断）
+    if (src.lookup) {
+      const hit = src.lookup.matches(name);
+      if (hit.files.length) return hit.files.map(f => this.storeCandidate_(f, hit.store));
+    }
+    // 店舗フォルダが設定されている店舗では、店舗共通の既存画像フォルダは使わない（名前の前方一致で別人の写真を出さない）
     if (src.store.configured && !src.store.error) return [];
     const fileId = ImageService.findImageIdForCast(folder.imageMap, name);
     if (!fileId) return [];
@@ -307,7 +325,8 @@ const ManualShiftService = {
   findCandidateById_(castId, src) {
     if (castId.indexOf('drive:') === 0) {
       const fileId = castId.slice(6);
-      if (StoreImageService.hasFile(src.store, fileId)) return { castId, imageFileId: fileId, source: 'store' };
+      const photoStore = src.lookup ? src.lookup.storeOf(fileId) : '';
+      if (photoStore) return { castId, imageFileId: fileId, source: 'store', photoStore };
       const file = src.folder.files.find(f => f.fileId === fileId);
       if (!file) return null;
       return { castId, imageFileId: fileId, source: 'folder' };
@@ -318,7 +337,8 @@ const ManualShiftService = {
 
   // フォルダ画像は「その名前で検索すると同じファイルになる」こと、登録キャストは名前キーの一致で確認する
   candidateMatchesName_(cand, castName, src) {
-    if (cand.source === 'store') return StoreImageService.findFiles(src.store, castName).some(f => f.fileId === cand.imageFileId);
+    // 店舗フォルダの写真は「今その名前で検索したときの候補」に含まれること（出勤先店舗の優先を保存時にも守る）
+    if (cand.source === 'store') return this.candidatesFor_(castName, src).some(c => c.source === 'store' && c.imageFileId === cand.imageFileId);
     if (cand.source === 'folder') return ImageService.findImageIdForCast(src.folder.imageMap, castName) === cand.imageFileId;
     return cand.nameKey === this.nameKey_(castName);
   },
@@ -327,7 +347,9 @@ const ManualShiftService = {
     if (castId) {
       const cand = this.findCandidateById_(castId, src);
       if (!cand || !this.candidateMatchesName_(cand, castName, src)) return { status: 'missing', imageFileId: '', reason: 'キャストID が見つかりません' };
-      return { status: cand.imageFileId ? 'registered' : 'missing', imageFileId: cand.imageFileId, source: cand.source };
+      const photo = { status: cand.imageFileId ? 'registered' : 'missing', imageFileId: cand.imageFileId, source: cand.source };
+      if (cand.photoStore) photo.photoStore = cand.photoStore;
+      return photo;
     }
     const candidates = this.candidatesFor_(castName, src);
     if (candidates.length > 1) return { status: 'ambiguous', imageFileId: '', candidates };

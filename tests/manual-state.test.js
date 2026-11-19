@@ -89,3 +89,16 @@ test('写真の取得失敗: 該当ファイルの行だけ「取得失敗」・
   assert.equal(S.summarize(rows).missingCount, 1);
   assert.deepEqual(S.summarize(rows).errors, [], '取得失敗でも生成はできる（仮カード）');
 });
+
+test('店舗横断: 候補の店舗（photoStore）を行に引き継ぐ・選び直し/候補なしで消す', () => {
+  const k = { castId: 'drive:K1', castName: 'ちょこ', imageFileId: 'K1', revision: 0, source: 'store', photoStore: 'KABUKI' };
+  const a1 = { castId: 'drive:A1', castName: 'るん', imageFileId: 'A1', revision: 0, source: 'store', photoStore: 'AKIBA' };
+  const a2 = { castId: 'drive:A2', castName: 'るん', imageFileId: 'A2', revision: 0, source: 'store', photoStore: 'AKIBA' };
+  const r = S.applyCandidates(S.newRow('ちょこ'), [k]);
+  assert.deepEqual([r.status, r.imageFileId, r.photoSource, r.photoStore], ['registered', 'K1', 'store', 'KABUKI']);
+  const amb = S.applyCandidates(S.newRow('るん'), [a1, a2]);
+  assert.deepEqual([amb.status, amb.photoStore], ['ambiguous', '']);
+  const picked = S.selectCandidate(amb, 'drive:A2');
+  assert.deepEqual([picked.status, picked.imageFileId, picked.photoStore], ['registered', 'A2', 'AKIBA']);
+  assert.equal(S.applyCandidates(r, []).photoStore, '');
+});

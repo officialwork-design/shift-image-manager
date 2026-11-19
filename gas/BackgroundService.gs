@@ -138,11 +138,12 @@ const BackgroundService = {
     const target = Utils.requireStoreAndIsoDate(store, date);
     const saved = ShiftRepository.readCommitted(target.store, target.date);
     const imageData = ImageService.getDriveImagesCached();
+    const storeFinder = ShiftService.storeImageFinder_(target.store);   // 店舗フォルダ（出勤先店舗 → もう一方の店舗）
     const casts = saved.rows
       .filter(row => row.status !== '休み')
       .map(row => {
-        const resolved = ShiftService.resolveImage_(imageData, row);
-        const known = resolved.fileId && (ImageService.isKnownImageFileId(imageData, resolved.fileId) ||
+        const resolved = ShiftService.resolveImage_(imageData, row, storeFinder);
+        const known = resolved.fileId && (ImageService.isKnownImageFileId(imageData, resolved.fileId) || resolved.source === 'store' ||
           (resolved.source === 'preparing' && resolved.fileId === imageData.preparingImageId));
         const fileId = known ? resolved.fileId : '';
         return { recordId: row.recordId, name: row.castName, workTime: row.workTime, fileId, source: fileId ? resolved.source : 'none' };

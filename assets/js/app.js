@@ -1352,9 +1352,7 @@ async function exportImage() {
 
     const a = document.createElement('a');
     a.href = canvas.toDataURL('image/png');
-    a.download = state.selection.store && state.selection.date
-      ? `shift-image_${state.selection.store}_${state.selection.date}.png`
-      : 'shift-image.png';
+    a.download = ShiftState.pngFileName(state.selection.date, state.selection.store) || 'shift-image.png';
     a.click();
   } catch (err) {
     showAlert(err.message, 'danger');
@@ -1726,15 +1724,30 @@ async function generateShiftImage() {
   }
 }
 
+// 画面で選択中の店舗・日付（手動入力モードは手動の店舗ボタン・日付、自動取得モードは読み込み済みの選択）
+function currentPngSelection() {
+  if (manualModeActive()) return { store: ManualMode.state.store || '', date: ManualMode.state.date || '' };
+  return { store: state.selection.store || '', date: state.selection.date || '' };
+}
+
 async function saveGeneratedPng() {
-  if (!bgState.generated) return;
+  const generated = bgState.generated;
+  if (!generated) return;
+  // 保存処理の開始時に店舗・日付を確定してファイル名を作る（途中で選択を変えても名前は変わらない）
+  const selection = currentPngSelection();
+  const fileName = ShiftState.pngFileName(selection.date, selection.store);
+  if (!fileName) { showAlert('店舗と日付を選択してから PNG を保存してください。', 'warning'); return; }
+  if (generated.store !== selection.store || generated.date !== selection.date) {
+    showAlert('生成した画像と選択中の店舗・日付が一致しません。もう一度「画像を生成」してから保存してください。', 'warning');
+    return;
+  }
   try {
     const canvas = document.getElementById('generatedCanvas');
     const blob = await ImageGenerator.toPngBlob(canvas);
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `shift_${bgState.generated.store}_${bgState.generated.date}_${canvas.width}x${canvas.height}.png`;
+    a.download = fileName;
     document.body.appendChild(a);
     a.click();
     a.remove();
