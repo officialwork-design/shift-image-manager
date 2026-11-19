@@ -78,7 +78,7 @@ const DATE = '2026-11-20';
 const look = (h, store, names, extra) => callPost(h, 'lookupCasts', Object.assign({ store, names }, extra || {}), EDITOR);
 const cands = (res, i) => res.data.results[i].candidates.map(c => c.castId);
 
-test('店舗フォルダ: 名前とファイル名を照合（拡張子・@以降を除く）・出勤先店舗を優先し、無ければもう一方の店舗', () => {
+test('店舗フォルダ: 名前とファイル名を照合（拡張子・@以降を除く）・店舗ごとに別フォルダ（他店舗の写真は出さない）', () => {
   const h = storeEnv();
   const k = look(h, 'KABUKI', ['もも', 'ちょこ', 'せい', 'りさ', '未登録さん']);
   assert.equal(k.success, true, JSON.stringify(k));
@@ -86,15 +86,14 @@ test('店舗フォルダ: 名前とファイル名を照合（拡張子・@以�
   assert.deepEqual(cands(k, 0), ['drive:K_MOMO']);
   assert.equal(k.data.results[0].candidates[0].source, 'store');
   assert.deepEqual(cands(k, 1), ['drive:K_CHOCO']);
-  assert.deepEqual(cands(k, 2), ['drive:A_SEI'], '秋葉原の「せい」は歌舞伎でも出る（店舗横断）');
-  assert.equal(k.data.results[2].candidates[0].photoStore, 'AKIBA');
-  assert.equal(k.data.results[0].candidates[0].photoStore, 'KABUKI');
+  assert.deepEqual(cands(k, 2), [], '秋葉原の「せい」は歌舞伎では出ない');
+  assert.equal(k.data.results[0].candidates[0].photoStore, 'KABUKI', '既存の項目 photoStore は維持（常に出勤先店舗）');
   assert.deepEqual(cands(k, 3), ['drive:K_SPACE'], '「りさ @id.png」も一致');
   assert.deepEqual(cands(k, 4), []);
   const a = look(h, 'AKIBA', ['せい', 'もも', 'ちょこ']);
   assert.deepEqual(cands(a, 0), ['drive:A_SEI']);
   assert.deepEqual(cands(a, 1), ['drive:A_MOMO'], '両方の店舗にあれば出勤先店舗の写真だけ');
-  assert.deepEqual(cands(a, 2), ['drive:K_CHOCO'], '歌舞伎の「ちょこ」は秋葉原でも出る（店舗横断）');
+  assert.deepEqual(cands(a, 2), [], '歌舞伎の「ちょこ」は秋葉原では出ない');
   assert.deepEqual(cands(look(h, 'KABUKI', ['テストあい']), 0), [], '店舗フォルダがある店舗では既存の共通画像フォルダを使わない');
 });
 
@@ -109,7 +108,7 @@ test('店舗フォルダ: 前方一致では紐付けない・同名ファイル
   assert.equal(r.data.storeImageCount, 7);
 });
 
-test('店舗フォルダ: 保存（drive:<fileId>）→ 再読み込みで写真あり・名前違い/出勤先店舗に同名があるときの他店舗の写真は拒否', () => {
+test('店舗フォルダ: 保存（drive:<fileId>）→ 再読み込みで写真あり・名前違い/他店舗のファイルは拒否', () => {
   const h = storeEnv();
   const save = (store, rows) => callPost(h, 'saveManualShift', { store, date: DATE, expectedRevision: 0, rows }, EDITOR);
   assert.equal(save('KABUKI', [{ castName: 'もも', castId: 'drive:K_MOMO' }, { castName: 'ちょこ', castId: 'drive:K_CHOCO' }]).success, true);
@@ -117,21 +116,22 @@ test('店舗フォルダ: 保存（drive:<fileId>）→ 再読み込みで写真
   assert.deepEqual(rows.map(r => [r.castName, r.photo.status, r.photo.imageFileId, r.photo.source]),
     [['もも', 'registered', 'K_MOMO', 'store'], ['ちょこ', 'registered', 'K_CHOCO', 'store']]);
   assert.equal(h.ss.getSheetByName('手動シフト').get(2, 6), 'K_MOMO', '画像ID 列');
-  assert.equal(save('AKIBA', [{ castName: 'もも', castId: 'drive:K_MOMO' }]).code, 'CAST_MISMATCH', '秋葉原に「もも」があるので歌舞伎の「もも」は使わない');
+  assert.equal(save('AKIBA', [{ castName: 'もも', castId: 'drive:K_MOMO' }]).code, 'UNKNOWN_CAST', '歌舞伎のファイルを秋葉原で使わない');
+  assert.equal(save('AKIBA', [{ castName: 'ちょこ', castId: 'drive:K_CHOCO' }]).code, 'UNKNOWN_CAST', '秋葉原に無い名前でも歌舞伎の写真は使わない');
   assert.equal(save('AKIBA', [{ castName: 'もも', castId: 'drive:NO_SUCH_FILE' }]).code, 'UNKNOWN_CAST');
   assert.equal(save('AKIBA', [{ castName: 'せい', castId: 'drive:A_MOMO' }]).code, 'CAST_MISMATCH');
   assert.equal(save('AKIBA', [{ castName: 'もも', castId: 'drive:A_MOMO' }]).success, true);
 });
 
-test('店舗フォルダ: 写真は data URL（3MB 超はサムネイル s800 で取得）・両店舗の写真を返す・未登録のファイルは返さない', () => {
+test('店舗フォルダ: 写真は data URL（3MB 超はサムネイル s800 で取得）・他店舗/未登録のファイルは返さない', () => {
   const h = storeEnv();
   const r = callPost(h, 'getManualPhotos', { store: 'KABUKI', fileIds: ['K_MOMO', 'K_BIG', 'A_SEI', 'OTHER'] }, EDITOR);
   assert.equal(r.success, true, JSON.stringify(r).slice(0, 300));
   assert.match(r.data.photos.K_MOMO, /^data:image\/png;base64,/);
   assert.match(r.data.photos.K_BIG, /^data:image\/png;base64,/, '3MB 超でも取得');
   assert.ok(h.fakeDrive.thumbRequests.every(s => s === 's800'));
-  assert.match(r.data.photos.A_SEI, /^data:image\/png;base64,/, '秋葉原フォルダの写真も歌舞伎で使える');
-  assert.deepEqual(r.data.failed.map(f => f.fileId + ':' + f.reason).sort(), ['OTHER:NOT_REGISTERED']);
+  assert.equal(r.data.photos.A_SEI, undefined, '秋葉原フォルダの写真は歌舞伎で返さない');
+  assert.deepEqual(r.data.failed.map(f => f.fileId + ':' + f.reason).sort(), ['A_SEI:NOT_REGISTERED', 'OTHER:NOT_REGISTERED']);
   const a = callPost(h, 'getManualPhotos', { store: 'AKIBA', fileIds: ['A_SEI'] }, EDITOR);
   assert.match(a.data.photos.A_SEI, /^data:image\/png;base64,/);
 });
@@ -179,15 +179,15 @@ test('Drive の元画像を変更しない（書き込み・移動・削除の A
 });
 
 
-// ===== 店舗横断の写真検索（KABUKI・AKIBA の写真を共通で使う） =====
+// ===== 店舗別の写真検索（他店舗のフォルダは検索しない） =====
 // 歌舞伎フォルダ: もも・ちょこ・ももか・るん×2 …／秋葉原フォルダ: せい・もも
 const AUTO_DATE = '2026-11-16';
-const crossSift = {
+const sepSift = {
   KABUKI: [['11月16日(月)', '18:00', 'せい', 'もも', 'ちょこ', '19:00', 'なし子'].join('\n')],
   AKIBA: [['11月16日(月)', '18:00', 'ちょこ', 'もも', 'せい', '19:00', 'るん', 'なし子'].join('\n')]
 };
-const crossEnv = (props, mutate) => {
-  const h = storeEnv(props, mutate, crossSift);
+const sepEnv = (props, mutate) => {
+  const h = storeEnv(props, mutate, sepSift);
   h.fakeDrive.photos.A_MOMO = { mimeType: 'image/png', bytes: png(400, 627) };
   return h;
 };
@@ -207,118 +207,96 @@ const castPhotos = (h, store) => {
   return { data: r.data, by };
 };
 
-test('店舗横断 1-3: 歌舞伎の写真は歌舞伎・秋葉原の両方、秋葉原の写真は歌舞伎でも表示（手動入力）', () => {
-  const h = crossEnv();
+test('店舗別 1-4: 歌舞伎の写真は歌舞伎だけ・秋葉原の写真は秋葉原だけ（他店舗にしかない写真は写真未登録）', () => {
+  const h = sepEnv();
   assert.deepEqual(cands(look(h, 'KABUKI', ['ちょこ']), 0), ['drive:K_CHOCO'], '1. 歌舞伎の写真が歌舞伎で');
-  const a = look(h, 'AKIBA', ['ちょこ']);
-  assert.deepEqual(cands(a, 0), ['drive:K_CHOCO'], '2. 歌舞伎の写真が秋葉原でも');
-  assert.equal(a.data.results[0].candidates[0].photoStore, 'KABUKI');
-  assert.equal(a.data.results[0].candidates[0].source, 'store', '既存のレスポンス形式（source=store）を維持');
-  const k = look(h, 'KABUKI', ['せい']);
-  assert.deepEqual(cands(k, 0), ['drive:A_SEI'], '3. 秋葉原の写真が歌舞伎でも');
-  assert.equal(k.data.results[0].candidates[0].photoStore, 'AKIBA');
-  // 保存 → 再読み込みでも写真あり（画像生成用の写真も取得できる）
-  assert.equal(callPost(h, 'saveManualShift', { store: 'AKIBA', date: DATE, expectedRevision: 0, rows: [{ castName: 'ちょこ', castId: 'drive:K_CHOCO' }] }, EDITOR).success, true);
-  const rows = callPost(h, 'getManualShift', { store: 'AKIBA', date: DATE }, EDITOR).data.rows;
-  assert.deepEqual([rows[0].photo.status, rows[0].photo.imageFileId, rows[0].photo.source, rows[0].photo.photoStore], ['registered', 'K_CHOCO', 'store', 'KABUKI']);
-  const p = callPost(h, 'getManualPhotos', { store: 'AKIBA', fileIds: ['K_CHOCO'] }, EDITOR);
-  assert.match(p.data.photos.K_CHOCO, /^data:image\/jpeg;base64,/);
+  assert.deepEqual(cands(look(h, 'AKIBA', ['せい']), 0), ['drive:A_SEI'], '2. 秋葉原の写真が秋葉原で');
+  assert.deepEqual(cands(look(h, 'AKIBA', ['ちょこ']), 0), [], '3. 歌舞伎にしかない写真は秋葉原で未登録');
+  assert.deepEqual(cands(look(h, 'KABUKI', ['せい']), 0), [], '4. 秋葉原にしかない写真は歌舞伎で未登録');
+  // 保存済みの行（castId なし）を読み直しても他店舗の写真は出ない
+  assert.equal(callPost(h, 'saveManualShift', { store: 'AKIBA', date: DATE, expectedRevision: 0, rows: [{ castName: 'ちょこ' }] }, EDITOR).success, true);
+  const row = callPost(h, 'getManualShift', { store: 'AKIBA', date: DATE }, EDITOR).data.rows[0];
+  assert.deepEqual([row.photo.status, row.photo.imageFileId], ['missing', '']);
 });
 
-test('店舗横断 4: 両方の店舗に同名の写真があれば出勤先店舗を優先（手動入力・自動取得・画像生成）', () => {
-  const h = crossEnv();
+test('店舗別 5: 両方の店舗に同名の写真があれば出勤先店舗の写真だけ（手動入力・自動取得・画像生成）', () => {
+  const h = sepEnv();
   assert.deepEqual(cands(look(h, 'KABUKI', ['もも']), 0), ['drive:K_MOMO']);
   assert.deepEqual(cands(look(h, 'AKIBA', ['もも']), 0), ['drive:A_MOMO']);
-  assert.equal(autoView(h, 'KABUKI').by['もも'].url.includes('K_MOMO'), true);
-  assert.equal(autoView(h, 'AKIBA').by['もも'].url.includes('A_MOMO'), true);
+  assert.match(autoView(h, 'KABUKI').by['もも'].url, /K_MOMO/);
+  assert.match(autoView(h, 'AKIBA').by['もも'].url, /A_MOMO/);
   assert.equal(castPhotos(h, 'KABUKI').by['もも'], 'K_MOMO');
   assert.equal(castPhotos(h, 'AKIBA').by['もも'], 'A_MOMO');
 });
 
-test('店舗横断 5: どちらの店舗にも無ければ写真未登録（手動入力・自動取得・未登録チェック）', () => {
-  const h = crossEnv();
-  assert.deepEqual(cands(look(h, 'KABUKI', ['なし子']), 0), []);
-  assert.deepEqual(cands(look(h, 'AKIBA', ['なし子']), 0), []);
-  const k = autoView(h, 'KABUKI');
-  assert.equal(k.by['なし子'].status, '未登録');
-  assert.deepEqual(k.view.missingImages, ['なし子']);
-  assert.equal(castPhotos(h, 'KABUKI').by['なし子'], '');
-  const chk = callPost(h, 'checkImages', { store: 'KABUKI', date: AUTO_DATE }, EDITOR);
-  assert.deepEqual(chk.data.missingNames, ['なし子'], '店舗横断で見つかる人は未登録にしない');
+test('店舗別: 保存・写真取得でも他店舗の写真は使わない（手動入力の写真照合）', () => {
+  const h = sepEnv();
+  const save = (store, rows) => callPost(h, 'saveManualShift', { store, date: DATE, expectedRevision: 0, rows }, EDITOR);
+  assert.equal(save('KABUKI', [{ castName: 'せい', castId: 'drive:A_SEI' }]).code, 'UNKNOWN_CAST');
+  assert.equal(save('AKIBA', [{ castName: 'もも', castId: 'drive:K_MOMO' }]).code, 'UNKNOWN_CAST');
+  const p = callPost(h, 'getManualPhotos', { store: 'AKIBA', fileIds: ['K_CHOCO', 'A_SEI'] }, EDITOR);
+  assert.deepEqual(Object.keys(p.data.photos), ['A_SEI']);
+  assert.deepEqual(p.data.failed.map(f => f.fileId + ':' + f.reason), ['K_CHOCO:NOT_REGISTERED']);
 });
 
-test('店舗横断 6: 自動取得モードでも両店舗の写真を表示・画像生成に使う', () => {
-  const h = crossEnv();
+test('店舗別 6・8: 自動取得は共通画像フォルダ → 出勤先店舗のフォルダ → 準備中/未登録（他店舗のフォルダは使わない）', () => {
+  const h = sepEnv();
   const a = autoView(h, 'AKIBA');
-  assert.equal(a.by['ちょこ'].status, '登録済み');
-  assert.match(a.by['ちょこ'].url, /K_CHOCO/, '歌舞伎の写真が秋葉原の自動取得で');
   assert.equal(a.by['せい'].status, '登録済み');
-  assert.match(a.by['せい'].url, /A_SEI/);
-  assert.equal(a.by['るん'].status, '未登録', '同名ファイルが複数（るん・るん(1)）なら自動では選ばない');
+  assert.match(a.by['せい'].url, /A_SEI/, '出勤先店舗のフォルダ');
+  assert.equal(a.by['ちょこ'].status, '未登録', '歌舞伎の写真は秋葉原の自動取得で使わない');
+  assert.equal(a.by['るん'].status, '未登録', '歌舞伎の同名ファイルも使わない');
   const k = autoView(h, 'KABUKI');
-  assert.match(k.by['せい'].url, /A_SEI/, '秋葉原の写真が歌舞伎の自動取得で');
+  assert.equal(k.by['せい'].status, '未登録', '秋葉原の写真は歌舞伎の自動取得で使わない');
+  assert.match(k.by['ちょこ'].url, /K_CHOCO/);
   const cp = castPhotos(h, 'AKIBA');
-  assert.equal(cp.by['ちょこ'], 'K_CHOCO');
-  assert.match(cp.data.photos.K_CHOCO, /^data:image\/jpeg;base64,/);
+  assert.equal(cp.by['ちょこ'], '');
+  assert.equal(cp.data.photos.K_CHOCO, undefined);
+  const chk = callPost(h, 'checkImages', { store: 'AKIBA', date: AUTO_DATE }, EDITOR);
+  assert.deepEqual(chk.data.missingNames.sort(), ['なし子', 'るん', 'ちょこ'].sort(), '未登録チェックも店舗別');
   const snap = callPost(h, 'getShiftSnapshot', { store: 'AKIBA', date: AUTO_DATE }, EDITOR).data;
-  const choco = snap.casts.find(c => c.castName === 'ちょこ');
-  assert.deepEqual([choco.imageSource, choco.resolvedImageFileId], ['store', 'K_CHOCO']);
-  // 既存の画像フォルダ（共通）の写真・手動の差込は従来どおり優先
-  const h2 = crossEnv(null, f => { f[TEST_IMG_FOLDER].files.push({ id: 'T_IMG_SEI', name: 'せい.png' }); });
-  assert.match(autoView(h2, 'KABUKI').by['せい'].url, /T_IMG_SEI/);
+  assert.deepEqual(snap.casts.filter(c => c.imageSource === 'store').map(c => c.castName).sort(), ['もも', 'せい'].sort());
+  // 8. 既存の共通画像フォルダの写真は従来どおり最優先（店舗に関係なく使える）
+  const h2 = sepEnv(null, f => { f[TEST_IMG_FOLDER].files.push({ id: 'T_IMG_CHOCO', name: 'ちょこ.png' }); });
+  assert.match(autoView(h2, 'AKIBA').by['ちょこ'].url, /T_IMG_CHOCO/);
+  assert.match(autoView(h2, 'KABUKI').by['ちょこ'].url, /T_IMG_CHOCO/, '共通フォルダは店舗フォルダより先（従来どおり）');
 });
 
-test('店舗横断 6b: 手動入力で同名が他店舗フォルダに複数あれば候補を全部出して選ぶ・登録写真があればそちらを使う', () => {
-  const h = crossEnv();
-  assert.deepEqual(cands(look(h, 'AKIBA', ['るん']), 0).sort(), ['drive:K_RUN1', 'drive:K_RUN2']);
-  const reg = callPost(h, 'registerCastPhoto', { castName: 'せい', image: { dataBase64: b64(png(400, 627)), mimeType: 'image/png' } }, EDITOR);
-  assert.equal(reg.success, true);
-  assert.deepEqual(cands(look(h, 'KABUKI', ['せい']), 0), [reg.data.castId], '登録写真があるときは他店舗のフォルダより優先（従来の優先順位）');
-  assert.deepEqual(cands(look(h, 'AKIBA', ['せい']), 0), ['drive:A_SEI', reg.data.castId], '出勤先店舗のフォルダ＋登録写真は従来どおり選択');
-});
-
-test('店舗横断 7: キャッシュ更新後も正しい写真（refresh・ADMIN のキャッシュ更新が両店舗に効く・出勤先店舗に追加されたら切り替わる）', () => {
-  const h = crossEnv();
-  assert.deepEqual(cands(look(h, 'KABUKI', ['みく']), 0), []);
+test('店舗別 6・7: 写真再検索・ADMIN のキャッシュ更新後も他店舗の写真は混ざらない', () => {
+  const h = sepEnv();
   h.folders[A_FOLDER].files.push({ id: 'A_MIKU', name: 'みく.png' });
-  assert.deepEqual(cands(look(h, 'KABUKI', ['みく']), 0), [], 'キャッシュ中は前の一覧');
-  assert.deepEqual(cands(look(h, 'KABUKI', ['みく'], { refresh: true }), 0), ['drive:A_MIKU'], 'refresh=true はもう一方の店舗にも効く');
-  assert.equal(callPost(h, 'saveManualShift', { store: 'KABUKI', date: DATE, expectedRevision: 0, rows: [{ castName: 'みく', castId: 'drive:A_MIKU' }] }, EDITOR).success, true);
-  // 出勤先店舗（歌舞伎）に同名の写真が追加された → 再検索で歌舞伎の写真に切り替わる
+  assert.deepEqual(cands(look(h, 'KABUKI', ['みく'], { refresh: true }), 0), [], '6. 再検索でも秋葉原の写真は歌舞伎に出ない');
+  assert.deepEqual(cands(look(h, 'AKIBA', ['みく'], { refresh: true }), 0), ['drive:A_MIKU']);
   h.folders[K_FOLDER].files.push({ id: 'K_MIKU', name: 'みく.png' });
   assert.deepEqual(cands(look(h, 'KABUKI', ['みく'], { refresh: true }), 0), ['drive:K_MIKU']);
-  const row = callPost(h, 'getManualShift', { store: 'KABUKI', date: DATE }, EDITOR).data.rows[0];
-  assert.equal(row.photo.status, 'missing', '古い紐付け（秋葉原の写真）は使わず、画面の再検索で歌舞伎の写真に紐付け直す');
-  // ADMIN のキャッシュ更新（refreshImageCache）は両店舗の一覧を消す → 自動取得でも新しい写真
-  const h2 = crossEnv();
-  assert.equal(autoView(h2, 'KABUKI').by['なし子'].status, '未登録');
+  assert.deepEqual(cands(look(h, 'AKIBA', ['みく'], { refresh: true }), 0), ['drive:A_MIKU'], '各店舗は自分のフォルダの写真');
+  const h2 = sepEnv();
+  autoView(h2, 'KABUKI');
   h2.folders[A_FOLDER].files.push({ id: 'A_NASHI', name: 'なし子.png' });
-  assert.equal(callPost(h2, 'getSavedShift', { store: 'KABUKI', date: AUTO_DATE }, EDITOR).data.activeCastList.find(c => c.castName === 'なし子').imageStatus, '未登録', 'キャッシュ中');
   assert.equal(callPost(h2, 'refreshImageCache', {}, ADMIN).success, true);
-  const after = callPost(h2, 'getSavedShift', { store: 'KABUKI', date: AUTO_DATE }, EDITOR).data.activeCastList.find(c => c.castName === 'なし子');
-  assert.equal(after.imageStatus, '登録済み');
-  assert.match(after.imageUrl, /A_NASHI/);
+  const k = callPost(h2, 'getSavedShift', { store: 'KABUKI', date: AUTO_DATE }, EDITOR).data.activeCastList.find(c => c.castName === 'なし子');
+  assert.equal(k.imageStatus, '未登録', '7. キャッシュ更新後も秋葉原の写真は歌舞伎で使わない');
+  autoView(h2, 'AKIBA');
+  const a = callPost(h2, 'getSavedShift', { store: 'AKIBA', date: AUTO_DATE }, EDITOR).data.activeCastList.find(c => c.castName === 'なし子');
+  assert.match(a.imageUrl, /A_NASHI/);
 });
 
-test('店舗横断: もう一方の店舗のフォルダが未設定・読めなくても出勤先店舗の写真は使える（自動取得も止まらない）', () => {
-  const h = crossEnv({ DRIVE_AKIBA_CAST_FOLDER_ID: '' });
+test('店舗別: もう一方の店舗のフォルダは読まない（設定エラー・読めないフォルダでも影響なし）', () => {
+  const h = sepEnv({ DRIVE_AKIBA_CAST_FOLDER_ID: PROD_IMG_FOLDER });   // 読むと CONFIG_PRODUCTION_ID_IN_TEST で停止する値
   const k = look(h, 'KABUKI', ['もも', 'せい']);
-  assert.equal(k.success, true);
+  assert.equal(k.success, true, '歌舞伎の検索で秋葉原のフォルダ設定を読まない');
   assert.deepEqual(cands(k, 0), ['drive:K_MOMO']);
-  assert.deepEqual(cands(k, 1), []);
-  assert.doesNotMatch(k.data.folderWarning, /DRIVE_AKIBA_CAST_FOLDER_ID/, '使っていない店舗の未設定は警告しない');
-  const h2 = crossEnv({ DRIVE_AKIBA_CAST_FOLDER_ID: 'NO_SUCH_FOLDER_000000000000' });
-  const k2 = look(h2, 'KABUKI', ['せい']);
-  assert.equal(k2.success, true);
-  assert.match(k2.data.folderWarning, /秋葉原の写真フォルダを読み込めません/);
-  assert.equal(autoView(h2, 'KABUKI').by['もも'].status, '登録済み');
+  assert.equal(k.data.folderWarning, '');
+  assert.equal(callPost(h, 'getManualPhotos', { store: 'KABUKI', fileIds: ['K_MOMO'] }, EDITOR).success, true);
+  assert.equal(autoView(h, 'KABUKI').by['もも'].status, '登録済み');
+  assert.equal(look(h, 'AKIBA', ['せい']).code, 'CONFIG_PRODUCTION_ID_IN_TEST', '秋葉原自身の設定エラーは従来どおり停止');
 });
 
-test('店舗横断: 写真ファイルを変更しない（書き込み・移動・複製・削除の Drive API を呼ばない）', () => {
-  const h = crossEnv();
+test('店舗別: 写真ファイルを変更しない（書き込み・移動・複製・削除の Drive API を呼ばない）', () => {
+  const h = sepEnv();
   look(h, 'AKIBA', ['ちょこ', 'せい', 'るん']);
   autoView(h, 'AKIBA');
   castPhotos(h, 'AKIBA');
-  callPost(h, 'getManualPhotos', { store: 'KABUKI', fileIds: ['A_SEI'] }, EDITOR);
+  callPost(h, 'getManualPhotos', { store: 'KABUKI', fileIds: ['A_SEI', 'K_MOMO'] }, EDITOR);
   assert.equal(h.fakeDrive.writes.length, 0);
 });

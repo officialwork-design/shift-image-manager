@@ -11,11 +11,9 @@
  *   既存の画像フォルダで使っている「キャスト名マスタの前方一致」は使わない（「ももか」が「もも」に誤って紐付くのを防ぐ）。
  *   同じ名前に一致するファイルが2つ以上ある場合は候補を全部返し、画面で選ぶまで写真を使わない。
  * - 一覧は CacheService に店舗ごとに保存（IMAGE_CACHE_SECONDS、既定600秒）。refresh=true で読み直す。
- * - 店舗横断の検索（createLookup）: 写真は KABUKI・AKIBA で共通に使う。
- *     1. 出勤先店舗のフォルダを検索 → 見つかればそれだけを使う（両方にあっても出勤先店舗を優先）
- *     2. 見つからなければ、もう一方の店舗のフォルダを検索
- *     3. どちらにも無ければ「写真未登録」
- *   もう一方の店舗のフォルダは必要になったときだけ読む（キャッシュも店舗ごと。refresh=true は両店舗に効く）。
+ * - 写真は店舗別に管理する（createLookup）: 出勤先店舗のフォルダだけを検索し、もう一方の店舗のフォルダは読まない。
+ *   出勤先店舗に無ければ「写真未登録」（他店舗の写真を候補に混ぜない）。
+ *   ※ 2026-11-19 の 08aaa9a で一時的に店舗横断検索にしたが、運用に合わせて店舗別に戻した（PNG 保存名の改善は維持）。
  */
 const STORE_CAST_FOLDER_KEYS = { KABUKI: 'DRIVE_KABUKI_CAST_FOLDER_ID', AKIBA: 'DRIVE_AKIBA_CAST_FOLDER_ID' };
 const STORE_IMAGE_CACHE_PREFIX = 'STORE_CAST_IMAGES_V1:';
@@ -73,19 +71,19 @@ const StoreImageService = {
     return this.withKeyMap_({ store: s, configured: true, folderId, files: scanned, warning: '' });
   },
 
-  // 検索順: 出勤先店舗 → もう一方の店舗
+  // 検索対象: 出勤先店舗のフォルダだけ（他店舗のフォルダは検索しない）
   searchOrder(store) {
     const s = BackgroundService.requireStore_(store);
-    return [s].concat(STORE_NAMES.filter(x => x !== s));
+    return [s];
   },
 
   /**
-   * 店舗横断の検索器（1リクエストの間だけ使う。店舗フォルダの一覧は必要になった店舗だけ読む）
+   * 店舗別の検索器（1リクエストの間だけ使う。出勤先店舗のフォルダ一覧だけを読む）
    *  images(store)   … その店舗の getImages の結果（メモ化）
-   *  matches(name)   … 検索順で最初に一致した店舗のファイル { store, files }（無ければ store '' / files []）
-   *  storeOf(fileId) … そのファイルがある店舗（検索順。無ければ ''）
-   *  allFiles()      … 両店舗のファイル（店舗付き）
-   *  warnings()      … 読み込んだもう一方の店舗のフォルダが読めなかったときの警告
+   *  matches(name)   … 出勤先店舗のフォルダで一致したファイル { store, files }（無ければ store '' / files []）
+   *  storeOf(fileId) … そのファイルが出勤先店舗のフォルダにあれば店舗名（無ければ ''）
+   *  allFiles()      … 出勤先店舗のファイル（店舗付き）
+   *  warnings()      … 追加の警告（店舗別検索では常に空。出勤先店舗の警告は images(store).warning）
    */
   createLookup(store, options) {
     const self = this;

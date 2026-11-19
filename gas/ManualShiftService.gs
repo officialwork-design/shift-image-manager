@@ -13,8 +13,8 @@
  *     DRIVE_CAST_PHOTO_FOLDER_ID が未設定のとき、テスト環境に限りフォルダを自動作成する（本番は設定必須）。
  * - 写真は data URL で返す（Canvas を汚染させず PNG 保存できるようにする）。
  * - 店舗別キャスト画像フォルダ（StoreImageService。DRIVE_KABUKI/AKIBA_CAST_FOLDER_ID）のファイルも候補にする（castId = drive:<fileId>）。
- *   候補の優先: 出勤先店舗のフォルダ ＋ この画面で登録したキャスト → もう一方の店舗のフォルダ（店舗横断）
- *     → 既存の画像フォルダ（出勤先店舗のフォルダが未設定の店舗だけ）。
+ *   候補: 出勤先店舗のフォルダ ＋ この画面で登録したキャスト → 既存の画像フォルダ（出勤先店舗のフォルダが未設定の店舗だけ）。
+ *   他店舗のフォルダの写真は候補にしない（保存・写真取得の検証も同じ）。
  *   同じ名前に候補が2つ以上あれば画面で選ぶ（名前だけで写真を決めない）。
  */
 const MANUAL_SHIFT_HEADERS = ['store', 'date', 'sortOrder', 'castName', 'castId', 'imageFileId',
@@ -140,7 +140,7 @@ const ManualShiftService = {
     const known = {};
     src.registry.forEach(e => { if (e.imageFileId) known[e.imageFileId] = true; });
     src.folder.files.forEach(f => { known[f.fileId] = true; });
-    if (src.lookup) src.lookup.allFiles().forEach(f => { known[f.fileId] = true; });   // 両店舗のフォルダ（店舗横断）
+    if (src.lookup) src.lookup.allFiles().forEach(f => { known[f.fileId] = true; });   // 出勤先店舗のフォルダだけ
     const photos = {};
     const failed = [];
     ids.forEach(id => {
@@ -282,7 +282,7 @@ const ManualShiftService = {
   },
 
   // 写真の参照元（登録キャスト・既存の画像フォルダ・店舗フォルダ）
-  // lookup: 店舗横断の検索器（出勤先店舗 → もう一方の店舗）。store は出勤先店舗のフォルダ
+  // lookup: 店舗別の検索器（出勤先店舗のフォルダだけ）。store は出勤先店舗のフォルダ
   sources_(store, options) {
     const registry = this.readRegistry_();
     const folder = this.readFolderImages_();
@@ -292,7 +292,7 @@ const ManualShiftService = {
     return { registry, folder, store: storeImgs, storeName: lookup ? lookup.store : '', lookup, warning };
   },
 
-  // 画面に出す警告（もう一方の店舗のフォルダを読んだときの警告も含める）
+  // 画面に出す警告
   warningOf_(src) {
     const extra = src.lookup ? src.lookup.warnings() : [];
     return [src.warning].concat(extra).filter(Boolean).join(' / ');
@@ -309,11 +309,6 @@ const ManualShiftService = {
     const fromStore = own.map(f => this.storeCandidate_(f, src.storeName));
     const fromRegistry = registry.filter(e => e.nameKey === key).map(e => this.registryView_(e));
     if (fromStore.length || fromRegistry.length) return fromStore.concat(fromRegistry);
-    // 出勤先店舗に無ければ、もう一方の店舗のフォルダ（店舗横断）
-    if (src.lookup) {
-      const hit = src.lookup.matches(name);
-      if (hit.files.length) return hit.files.map(f => this.storeCandidate_(f, hit.store));
-    }
     // 店舗フォルダが設定されている店舗では、店舗共通の既存画像フォルダは使わない（名前の前方一致で別人の写真を出さない）
     if (src.store.configured && !src.store.error) return [];
     const fileId = ImageService.findImageIdForCast(folder.imageMap, name);
@@ -337,7 +332,7 @@ const ManualShiftService = {
 
   // フォルダ画像は「その名前で検索すると同じファイルになる」こと、登録キャストは名前キーの一致で確認する
   candidateMatchesName_(cand, castName, src) {
-    // 店舗フォルダの写真は「今その名前で検索したときの候補」に含まれること（出勤先店舗の優先を保存時にも守る）
+    // 店舗フォルダの写真は「今その名前で検索したときの候補」に含まれること（他店舗の写真は保存させない）
     if (cand.source === 'store') return this.candidatesFor_(castName, src).some(c => c.source === 'store' && c.imageFileId === cand.imageFileId);
     if (cand.source === 'folder') return ImageService.findImageIdForCast(src.folder.imageMap, castName) === cand.imageFileId;
     return cand.nameKey === this.nameKey_(castName);

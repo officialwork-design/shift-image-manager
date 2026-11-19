@@ -138,7 +138,7 @@ const BackgroundService = {
     const target = Utils.requireStoreAndIsoDate(store, date);
     const saved = ShiftRepository.readCommitted(target.store, target.date);
     const imageData = ImageService.getDriveImagesCached();
-    const storeFinder = ShiftService.storeImageFinder_(target.store);   // 店舗フォルダ（出勤先店舗 → もう一方の店舗）
+    const storeFinder = ShiftService.storeImageFinder_(target.store);   // 出勤先店舗のフォルダ（他店舗は検索しない）
     const casts = saved.rows
       .filter(row => row.status !== '休み')
       .map(row => {

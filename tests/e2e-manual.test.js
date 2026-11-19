@@ -332,23 +332,28 @@ test('E2E 手動モード: 店舗ボタン・店舗別背景・手入力・保�
       await page.click('#manualReloadButton'); await waitIdle(page);   // 破棄して保存済みに戻す（confirm は自動で OK）
     });
 
-    await t.test('秋葉原「せい」＋歌舞伎「ちょこ」: 店舗横断で両方の写真を自動表示 → 秋葉原の背景で生成・PNG 名は 日付_AKIBA.png', async () => {
+    await t.test('秋葉原「せい」: 店舗フォルダの写真を自動表示・歌舞伎の「ちょこ」は写真未登録 → 秋葉原の背景で生成・PNG 名は 日付_AKIBA.png', async () => {
       await clickStore(page, '秋葉原', 'AKIBA');
       await page.evaluate(() => { ManualMode.state.rows = []; });
       await addByEnter(page, 'せい');
       await addByEnter(page, 'ちょこ');
-      assert.deepEqual(await statuses(page), ['registered', 'registered'], '秋葉原のフォルダに無い ちょこ は歌舞伎のフォルダから');
+      assert.deepEqual(await statuses(page), ['registered', 'missing'], '秋葉原のフォルダに ちょこ は無い（歌舞伎の写真は使わない）');
       assert.match(await page.textContent('#manualList .manual-row:nth-child(1)'), /写真あり（店舗フォルダ）/);
-      assert.match(await page.textContent('#manualList .manual-row:nth-child(2)'), /写真あり（歌舞伎の店舗フォルダ）/);
+      assert.match(await page.textContent('#manualList .manual-row:nth-child(2)'), /写真未登録/);
+      assert.doesNotMatch(await page.textContent('#manualList'), /歌舞伎の店舗フォルダ/);
       const c = await generate(page);
       assert.equal(c.disabled, false, c.errors);
       assert.deepEqual(await cellCenter(page, 2, 0), SEI);
-      assert.deepEqual(await cellCenter(page, 2, 1), CHOCO, '歌舞伎の写真で生成');
+      assert.notDeepEqual(await cellCenter(page, 2, 1), CHOCO, '歌舞伎の写真では生成しない');
       assert.deepEqual(await pixel(page, 5, 5), [210, 240, 255], '秋葉原の背景');
       const date = await page.evaluate(() => ManualMode.state.date);
       const [download] = await Promise.all([page.waitForEvent('download'), page.click('#pngSaveButton')]);
       assert.equal(download.suggestedFilename(), `${date}_AKIBA.png`);
       assert.deepEqual(pngSize(fs.readFileSync(await download.path())), { width: 1447, height: 2048 });
+      // 店舗を変えると生成済み画像は無効（古い画像を別の店舗名で保存させない）
+      await clickStore(page, '歌舞伎', 'KABUKI');
+      assert.equal(await page.isDisabled('#pngSaveButton'), true);
+      await clickStore(page, '秋葉原', 'AKIBA');
       await page.click('#manualReloadButton'); await waitIdle(page);
       await clickStore(page, '歌舞伎', 'KABUKI');
     });

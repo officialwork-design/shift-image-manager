@@ -78,16 +78,16 @@
       if (!linked && list.length === 1) linked = list[0];
       if (linked) {
         return Object.assign(next, { castId: linked.castId, imageFileId: linked.imageFileId || '', castRevision: linked.revision || 0,
-          photoSource: linked.source || '', photoStore: linked.photoStore || '', status: linked.imageFileId ? 'registered' : 'missing' });
+          photoSource: linked.source || '', status: linked.imageFileId ? 'registered' : 'missing' });
       }
-      return Object.assign(next, { castId: '', imageFileId: '', castRevision: 0, photoSource: '', photoStore: '', status: list.length > 1 ? 'ambiguous' : 'missing' });
+      return Object.assign(next, { castId: '', imageFileId: '', castRevision: 0, photoSource: '', status: list.length > 1 ? 'ambiguous' : 'missing' });
     },
 
     selectCandidate(row, castId) {
       const c = (row.candidates || []).find(x => x.castId === castId);
       if (!c) return Object.assign({}, row, { castId: '', imageFileId: '', castRevision: 0, status: (row.candidates || []).length > 1 ? 'ambiguous' : 'missing' });
       return Object.assign({}, row, { castId: c.castId, imageFileId: c.imageFileId || '', castRevision: c.revision || 0,
-        photoSource: c.source || '', photoStore: c.photoStore || '', status: c.imageFileId ? 'registered' : 'missing' });
+        photoSource: c.source || '', status: c.imageFileId ? 'registered' : 'missing' });
     },
 
     // 保存前の検証。errors があれば保存しない
@@ -549,7 +549,7 @@ const ManualMode = (() => {
   // ===== 描画 =====
   function statusBadge(r) {
     switch (r.status) {
-      case 'registered': return r.photoSource === 'store' ? `<span class="badge text-bg-success">写真あり（${escapeHtml(storeFolderLabel(r.photoStore))}）</span>`
+      case 'registered': return r.photoSource === 'store' ? '<span class="badge text-bg-success">写真あり（店舗フォルダ）</span>'
         : r.castId.indexOf('drive:') === 0 ? '<span class="badge text-bg-success">写真あり（画像フォルダ）</span>' : '<span class="badge text-bg-success">写真あり（登録写真）</span>';
       case 'ambiguous': return '<span class="badge text-bg-warning">同名あり・写真を選択</span>';
       case 'checking': return '<span class="badge text-bg-light border">写真を取得中…</span>';
@@ -559,13 +559,8 @@ const ManualMode = (() => {
     }
   }
 
-  // 店舗フォルダの表示名。出勤先と違う店舗のフォルダ（店舗横断）なら店舗名を付ける
-  function storeFolderLabel(photoStore) {
-    return photoStore && photoStore !== m.store ? `${S.storeLabel(photoStore)}の店舗フォルダ` : '店舗フォルダ';
-  }
-
   function candidateLabel(c) {
-    const where = c.source === 'store' ? `${storeFolderLabel(c.photoStore)}「${c.fileName || c.castName}」` : c.source === 'folder' ? '画像フォルダ' : `登録写真 ${c.updatedAt || ''}`;
+    const where = c.source === 'store' ? `店舗フォルダ「${c.fileName || c.castName}」` : c.source === 'folder' ? '画像フォルダ' : `登録写真 ${c.updatedAt || ''}`;
     return `${c.castName}（${where}・${c.castId.slice(-6)}）`;
   }
 

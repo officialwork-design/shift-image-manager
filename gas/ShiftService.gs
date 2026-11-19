@@ -267,7 +267,7 @@ const ShiftService = {
     return { recordId, sortOrder, castName, workTime, status: statusText === '休み' ? '休み' : '出勤', imageFileId };
   },
 
-  // 手動選択 → 名前一致（既存の画像フォルダ）→ 店舗フォルダ（出勤先店舗 → もう一方の店舗）→ 準備中 → なし
+  // 手動選択 → 名前一致（既存の画像フォルダ）→ 出勤先店舗のフォルダ → 準備中 → なし
   // storeFinder は省略可（省略時は店舗フォルダを使わない＝従来どおり）
   resolveImage_(imageData, row, storeFinder) {
     if (row.imageFileId) return { fileId: row.imageFileId, source: 'manual' };
@@ -280,8 +280,8 @@ const ShiftService = {
   },
 
   /**
-   * 自動取得モード用: 店舗フォルダ（KABUKI・AKIBA 共通）から名前で写真を探す
-   *  - 出勤先店舗のフォルダ → もう一方の店舗のフォルダ（StoreImageService.createLookup）
+   * 自動取得モード用: 出勤先店舗のフォルダから名前で写真を探す
+   *  - 出勤先店舗のフォルダだけ（StoreImageService.createLookup。他店舗のフォルダは検索しない）
    *  - 一致が 1 件のときだけ使う（同名ファイルが複数ある場合は名前だけで選ばない）
    *  - フォルダ未設定・読み込み失敗・設定エラーでも自動取得モードは止めない（その写真が無い扱い）
    *  - フォルダの一覧は最初に必要になったときだけ読む
